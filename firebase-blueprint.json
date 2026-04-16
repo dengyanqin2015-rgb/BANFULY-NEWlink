@@ -1,0 +1,100 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System user account",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "employee"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Planning": {
+      "title": "Strategic Planning",
+      "description": "Monthly upload planning",
+      "type": "object",
+      "properties": {
+        "month": { "type": "string" },
+        "source": { "type": "string" },
+        "category": { "type": "string" },
+        "scene": { "type": "string" },
+        "keywords": { "type": "string" },
+        "plannedCount": { "type": "number" },
+        "uploadedCount": { "type": "number" },
+        "ownerId": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "shop": { "type": "string" },
+        "channel": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["month", "category", "plannedCount", "ownerId"]
+    },
+    "Product": {
+      "title": "Product Lifecycle",
+      "description": "Individual product link management",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string" },
+        "uploadTime": { "type": "string", "format": "date-time" },
+        "category": { "type": "string" },
+        "scene": { "type": "string" },
+        "keywords": { "type": "string" },
+        "channel": { "type": "string" },
+        "shop": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "planningId": { "type": "string" },
+        "steps": {
+          "type": "object",
+          "properties": {
+            "uploaded": { "type": "boolean" },
+            "keywordTest": { "type": "boolean" },
+            "addToCart": { "type": "boolean" },
+            "review": { "type": "boolean" },
+            "internalSales": { "type": "boolean" },
+            "keywordPlan": { "type": "boolean" },
+            "fission": { "type": "boolean" },
+            "fullSite": { "type": "boolean" },
+            "marketingManaged": { "type": "boolean" }
+          }
+        },
+        "result": { "type": "string", "enum": ["unsold", "moving", "small_burst", "big_burst"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["productId", "category", "ownerId"]
+    },
+    "Setting": {
+      "title": "System Settings",
+      "description": "Global configuration",
+      "type": "object",
+      "properties": {
+        "channels": { "type": "array", "items": { "type": "string" } },
+        "shops": { "type": "array", "items": { "type": "string" } },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "scenes": { "type": "array", "items": { "type": "string" } },
+        "dynamicFlows": { "type": "object" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/plannings/{planningId}": {
+      "schema": "Planning",
+      "description": "Strategic plans"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Product links"
+    },
+    "/settings/global": {
+      "schema": "Setting",
+      "description": "Global settings"
+    }
+  }
+}
