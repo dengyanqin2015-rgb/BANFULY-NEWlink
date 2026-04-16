@@ -33,7 +33,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <div className="w-7 h-7 bg-[#FF6B00] rounded-lg flex items-center justify-center text-white">
               <Package size={18} />
             </div>
-            Banfuly上新追踪
+            Banfuly新品中心
           </h1>
         </div>
 
