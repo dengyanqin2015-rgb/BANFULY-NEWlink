@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
+import { logOperation } from '../lib/logger';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -30,12 +31,13 @@ export const ProductManagement: React.FC = () => {
   const [products, setProducts] = useState<any[]>([]);
   const [plannings, setPlannings] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>({ channels: {} });
+  const [users, setUsers] = useState<any[]>([]);
 
   const allShops = React.useMemo(() => {
-    const shops: { name: string, channel: string, owners: string[] }[] = [];
+    const shops: { name: string, channel: string }[] = [];
     Object.entries(settings.channels || {}).forEach(([cName, cData]: [string, any]) => {
       (cData.shops || []).forEach((s: any) => {
-        shops.push({ name: s.name || s, channel: cName, owners: s.owners || [] });
+        shops.push({ name: s.name || s, channel: cName });
       });
     });
     return shops;
@@ -110,21 +112,67 @@ export const ProductManagement: React.FC = () => {
     const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (doc) => {
       if (doc.exists()) setSettings(doc.data());
     });
-
-    const qP = isAdmin ? collection(db, 'plannings') : query(collection(db, 'plannings'), where('ownerId', '==', profile?.uid || ''));
-    const unsubP = onSnapshot(qP, (snapshot) => {
-      setPlannings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    
+    // Add missing users subscription
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    const qProd = isAdmin ? collection(db, 'products') : query(collection(db, 'products'), where('ownerId', '==', profile?.uid || ''));
+    const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
+
+    let qP;
+    if (isAdmin) {
+      qP = collection(db, 'plannings');
+    } else if (allowedShops.length > 0) {
+      qP = query(collection(db, 'plannings'), where('shop', 'in', allowedShops.slice(0, 30)));
+    } else {
+      qP = query(collection(db, 'plannings'), where('shop', '==', 'NONE_ASSIGNED'));
+    }
+
+    const unsubP = onSnapshot(qP, (snapshot) => {
+      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      if (!isAdmin) {
+        docs = docs.filter(doc => {
+          const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+          if (!shopPerm) return false;
+          if (shopPerm.canViewPast) return true;
+          const docDate = new Date(doc.createdAt || 0);
+          const takeoverDate = new Date(shopPerm.takeoverTime);
+          return docDate >= takeoverDate;
+        });
+      }
+      setPlannings(docs);
+    });
+
+    let qProd;
+    if (isAdmin) {
+      qProd = collection(db, 'products');
+    } else if (allowedShops.length > 0) {
+      qProd = query(collection(db, 'products'), where('shop', 'in', allowedShops.slice(0, 30)));
+    } else {
+      qProd = query(collection(db, 'products'), where('shop', '==', 'NONE_ASSIGNED'));
+    }
+
     const unsubProd = onSnapshot(qProd, (snapshot) => {
-      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      if (!isAdmin) {
+        docs = docs.filter(doc => {
+          const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+          if (!shopPerm) return false;
+          if (shopPerm.canViewPast) return true;
+          const docDate = new Date(doc.createdAt || doc.uploadTime || 0);
+          const takeoverDate = new Date(shopPerm.takeoverTime);
+          return docDate >= takeoverDate;
+        });
+      }
+      setProducts(docs);
     });
 
     return () => {
       unsubSettings();
       unsubP();
       unsubProd();
+      unsubUsers();
     };
   }, [isAdmin, profile]);
 
@@ -141,7 +189,7 @@ export const ProductManagement: React.FC = () => {
     const channelSop = settings.channels[newProduct.channel]?.sop || [];
     const initialSteps: any = {};
     channelSop.forEach((step: string) => {
-      initialSteps[step] = step === '上架';
+      initialSteps[step] = false;
     });
 
     try {
@@ -173,6 +221,8 @@ export const ProductManagement: React.FC = () => {
       }
 
       await batch.commit();
+      
+      await logOperation('CREATE', 'PRODUCT', productIds.join(','), `新增链接: ${productIds.length}个 - ${newProduct.shop}`, profile);
 
       setNewProduct({ productId: '', category: '', scene: '', keywords: '', channel: '', shop: '', planningId: '', assignedOwner: '', month: '' });
       setIsAddOpen(false);
@@ -186,10 +236,12 @@ export const ProductManagement: React.FC = () => {
     await updateDoc(doc(db, 'products', productId), {
       [`steps.${step}`]: !currentVal
     });
+    await logOperation('UPDATE', 'PRODUCT', productId, `更新SOP状态: ${step} -> ${!currentVal ? '完成' : '未完成'}`, profile);
   };
 
   const updateResult = async (productId: string, result: string) => {
     await updateDoc(doc(db, 'products', productId), { result });
+    await logOperation('UPDATE', 'PRODUCT', productId, `更新链接判定: ${result}`, profile);
   };
 
   const handleBatchUpdateSteps = async (channel: string, step: string, value: boolean) => {
@@ -209,6 +261,7 @@ export const ProductManagement: React.FC = () => {
         return;
       }
       await batch.commit();
+      await logOperation('UPDATE', 'PRODUCT', selectedIds.join(','), `批量更新SOP: ${channel} - ${step} -> ${value ? '完成' : '未完成'}`, profile);
       toast.success(`成功更新 ${updatedCount} 个商品的进度`);
     } catch (error) {
       toast.error('批量更新失败');
@@ -223,6 +276,7 @@ export const ProductManagement: React.FC = () => {
         batch.update(doc(db, 'products', id), { result });
       });
       await batch.commit();
+      await logOperation('UPDATE', 'PRODUCT', selectedIds.join(','), `批量更新链接判定: ${result}`, profile);
       toast.success('批量更新结果成功');
     } catch (error) {
       toast.error('批量更新失败');
@@ -245,7 +299,9 @@ export const ProductManagement: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
+      const product = products.find(p => p.id === id);
       await deleteDoc(doc(db, 'products', id));
+      await logOperation('DELETE', 'PRODUCT', id, `删除商品链接: ${product?.productId || '未知'}`, profile);
       toast.success('已删除');
     } catch (error) {
       toast.error('删除失败');
@@ -258,6 +314,7 @@ export const ProductManagement: React.FC = () => {
       const batch = writeBatch(db);
       selectedIds.forEach(id => batch.delete(doc(db, 'products', id)));
       await batch.commit();
+      await logOperation('DELETE', 'PRODUCT', selectedIds.join(','), `批量删除 ${selectedIds.length} 个商品链接`, profile);
       setSelectedIds([]);
       toast.success(`成功删除 ${selectedIds.length} 个链接`);
     } catch (error) {
@@ -297,7 +354,7 @@ export const ProductManagement: React.FC = () => {
       let count = 0;
       for (const item of data as any[]) {
         try {
-          await addDoc(collection(db, 'products'), {
+          const docRef = await addDoc(collection(db, 'products'), {
             productId: String(item['商品 ID']),
             category: item['品类'],
             scene: item['场景'],
@@ -311,6 +368,7 @@ export const ProductManagement: React.FC = () => {
             result: 'unsold',
             createdAt: new Date().toISOString(),
           });
+          await logOperation('CREATE', 'PRODUCT', docRef.id, `导入商品链接: ${item['商品 ID']} - ${item['店铺']}`, profile);
           count++;
         } catch (err) {}
       }
@@ -318,6 +376,21 @@ export const ProductManagement: React.FC = () => {
     };
     reader.readAsBinaryString(file);
   };
+
+  const uniqueYears = Array.from(new Set(products.map(p => p.month?.split('-')[0]).filter(Boolean))).sort().reverse() as string[];
+  const uniqueMonths = Array.from(new Set(products.map(p => p.month?.split('-')[1]).filter(Boolean))).sort().reverse() as string[];
+  const uniqueDays = Array.from(new Set(products.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean))).sort().reverse() as string[];
+  const uniqueChannels = Array.from(new Set(products.map(p => p.channel).filter(Boolean))) as string[];
+  const uniqueShops = Array.from(new Set(products.map(p => p.shop).filter(Boolean))) as string[];
+  const uniqueCategories = Array.from(new Set(products.map(p => p.category).filter(Boolean))) as string[];
+
+  const getUserDisplayName = (emailOrName: string) => {
+    if (!emailOrName) return '未知';
+    const user = users.find(u => u.email === emailOrName || u.displayName === emailOrName || u.username === emailOrName);
+    return user?.displayName || user?.username || emailOrName.split('@')[0];
+  };
+
+  const uniqueOwners = Array.from(new Set(products.map(p => getUserDisplayName(p.assignedOwner || p.ownerName)).filter(Boolean))) as string[];
 
   const filteredProducts = products.filter(p => {
     const matchesSearch = p.productId?.toLowerCase().includes(searchTerm.toLowerCase());
@@ -331,19 +404,11 @@ export const ProductManagement: React.FC = () => {
     const matchesDay = filterDay === 'all' || pDay === filterDay;
     const matchesChannel = filterChannel === 'all' || p.channel === filterChannel;
     const matchesShop = filterShop === 'all' || p.shop === filterShop;
-    const matchesOwner = filterOwner === 'all' || p.assignedOwner === filterOwner;
+    const matchesOwner = filterOwner === 'all' || getUserDisplayName(p.assignedOwner || p.ownerName) === filterOwner;
     const matchesCategory = filterCategory === 'all' || p.category === filterCategory;
     
     return matchesSearch && matchesYear && matchesMonth && matchesDay && matchesChannel && matchesShop && matchesOwner && matchesCategory;
   });
-
-  const uniqueYears = Array.from(new Set(products.map(p => p.month?.split('-')[0]).filter(Boolean))).sort().reverse() as string[];
-  const uniqueMonths = Array.from(new Set(products.map(p => p.month?.split('-')[1]).filter(Boolean))).sort().reverse() as string[];
-  const uniqueDays = Array.from(new Set(products.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean))).sort().reverse() as string[];
-  const uniqueChannels = Array.from(new Set(products.map(p => p.channel).filter(Boolean))) as string[];
-  const uniqueShops = Array.from(new Set(products.map(p => p.shop).filter(Boolean))) as string[];
-  const uniqueOwners = Array.from(new Set(products.map(p => p.assignedOwner).filter(Boolean))) as string[];
-  const uniqueCategories = Array.from(new Set(products.map(p => p.category).filter(Boolean))) as string[];
 
   const judgments = settings.linkJudgments || [
     { label: '待设置', definition: '尚未进行链接判定的商品', color: '#86868B' },
@@ -358,7 +423,7 @@ export const ProductManagement: React.FC = () => {
     if (judgment?.color) {
       return { backgroundColor: `${judgment.color}20`, color: judgment.color };
     }
-    return { backgroundColor: '#F3F4F6', color: '#6B7280' }; // Default gray
+    return { backgroundColor: '#F3F4F6', color: '#6B7280' };
   };
 
   return (
@@ -383,7 +448,7 @@ export const ProductManagement: React.FC = () => {
           </div>
           <div className="flex bg-[#E3E3E8] p-1 rounded-xl gap-1 overflow-x-auto custom-scrollbar flex-nowrap shrink-0 max-w-full">
             <Select value={filterYear} onValueChange={setFilterYear}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterYear === 'all' ? '全部年' : `${filterYear}年`}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -392,7 +457,7 @@ export const ProductManagement: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterMonth} onValueChange={setFilterMonth}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterMonth === 'all' ? '全部月' : `${filterMonth}月`}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -401,7 +466,7 @@ export const ProductManagement: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterDay} onValueChange={setFilterDay}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterDay === 'all' ? '全部日' : `${filterDay}日`}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -410,7 +475,7 @@ export const ProductManagement: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterChannel} onValueChange={setFilterChannel}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterChannel === 'all' ? '全部渠道' : filterChannel}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -419,7 +484,7 @@ export const ProductManagement: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterShop} onValueChange={setFilterShop}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterShop === 'all' ? '全部店铺' : filterShop}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -428,16 +493,16 @@ export const ProductManagement: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterOwner} onValueChange={setFilterOwner}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
-                <SelectValue>{filterOwner === 'all' ? '全部负责人' : filterOwner.split('@')[0]}</SelectValue>
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+                <SelectValue placeholder="全部负责人">{filterOwner === 'all' ? '全部负责人' : filterOwner}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
                 <SelectItem value="all">全部负责人</SelectItem>
-                {uniqueOwners.map(o => <SelectItem key={o} value={o}>{o.split('@')[0]}</SelectItem>)}
+                {uniqueOwners.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterCategory === 'all' ? '全部品类' : filterCategory}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -473,7 +538,7 @@ export const ProductManagement: React.FC = () => {
       </header>
 
       {selectedIds.length > 0 && (() => {
-        const selectedChannels = Array.from(new Set(products.filter(p => selectedIds.includes(p.id)).map(p => p.channel).filter(Boolean)));
+        const selectedChannels = Array.from(new Set(products.filter(p => selectedIds.includes(p.id)).map(p => p.channel).filter(Boolean))) as string[];
         return (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 bg-[#1D1D1F] text-white px-6 py-4 rounded-[24px] shadow-2xl flex items-center gap-6 animate-in slide-in-from-bottom-8">
           <div className="flex items-center gap-2 border-r border-white/10 pr-6">
@@ -584,7 +649,14 @@ export const ProductManagement: React.FC = () => {
                 }
               }}>
                 <SelectTrigger className="rounded-xl border-black/10 h-10">
-                  <SelectValue placeholder="选择规划" />
+                  <SelectValue placeholder="选择规划">
+                    {newProduct.planningId && plannings.find((p) => p.id === newProduct.planningId)
+                      ? (() => {
+                          const p = plannings.find((pl) => pl.id === newProduct.planningId);
+                          return p ? `${p.category} (${p.keywords}) - ${p.channel}` : newProduct.planningId;
+                        })()
+                      : "选择规划"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent className="rounded-xl">
                   {plannings
@@ -612,12 +684,12 @@ export const ProductManagement: React.FC = () => {
               <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">店铺</label>
               <Select value={newProduct.shop} onValueChange={val => {
                 const selectedShop = allShops.find(s => s.name === val);
-                const owners = selectedShop?.owners || [];
+                const owners = users.filter(u => u.role !== 'rejected' && (u.role === 'admin' || (u.permissions && u.permissions.some((p: any) => p.shop === val))));
                 setNewProduct({
                   ...newProduct, 
                   shop: val, 
                   channel: selectedShop ? selectedShop.channel : newProduct.channel,
-                  assignedOwner: owners.length === 1 ? owners[0] : newProduct.assignedOwner
+                  assignedOwner: owners.length === 1 ? owners[0].email : ''
                 });
               }}>
                 <SelectTrigger className="rounded-xl border-black/10 h-10">
@@ -634,11 +706,13 @@ export const ProductManagement: React.FC = () => {
               <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">负责人</label>
               <Select value={newProduct.assignedOwner} onValueChange={val => setNewProduct({...newProduct, assignedOwner: val})} disabled={!newProduct.shop}>
                 <SelectTrigger className="rounded-xl border-black/10 h-10">
-                  <SelectValue placeholder={newProduct.shop ? "选择负责人" : "请先选择店铺"} />
+                  <span className={cn("text-sm", !newProduct.assignedOwner && "text-muted-foreground")}>
+                    {newProduct.assignedOwner ? getUserDisplayName(newProduct.assignedOwner) : (newProduct.shop ? "选择负责人" : "请先选择店铺")}
+                  </span>
                 </SelectTrigger>
                 <SelectContent className="rounded-xl">
-                  {(settings.channels[newProduct.channel]?.shops?.find((s: any) => s.name === newProduct.shop)?.owners || []).map((o: string) => (
-                    <SelectItem key={o} value={o}>{o.split('@')[0]}</SelectItem>
+                  {users.filter(u => u.role !== 'rejected' && (u.role === 'admin' || (u.permissions && u.permissions.some((p: any) => p.shop === newProduct.shop)))).map(o => (
+                    <SelectItem key={o.id} value={o.email}>{getUserDisplayName(o.email)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -662,14 +736,14 @@ export const ProductManagement: React.FC = () => {
                     className="rounded-md border-black/10 data-[state=checked]:bg-[#FF6B00] data-[state=checked]:border-[#FF6B00]"
                   />
                 </TableHead>
-                <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">商品 ID</TableHead>
-                <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">上架信息</TableHead>
-                <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">基础信息</TableHead>
-                <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">负责人</TableHead>
-                <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">店铺/渠道</TableHead>
-                <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 min-w-[300px]">SOP 进度</TableHead>
-                <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">链接判定</TableHead>
-                <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 text-right">操作</TableHead>
+                <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">商品 ID</TableHead>
+                <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">上架信息</TableHead>
+                <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">基础信息</TableHead>
+                <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">负责人</TableHead>
+                <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">店铺/渠道</TableHead>
+                <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4 min-w-[300px]">SOP 进度</TableHead>
+                <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">链接判定</TableHead>
+                <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4 text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -702,20 +776,20 @@ export const ProductManagement: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span className="text-[11px] text-[#1D1D1F] font-bold">{p.uploadTime?.split('T')[0]}</span>
-                      <span className="text-[10px] text-[#FF6B00] font-bold">已上架 {calculateDays(p.uploadTime)} 天</span>
+                      <span className="text-sm text-[#1D1D1F] font-bold">{p.uploadTime?.split('T')[0]}</span>
+                      <span className="text-xs text-[#FF6B00] font-bold mt-0.5">已上架 {calculateDays(p.uploadTime)} 天</span>
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-[11px] text-[#1D1D1F] font-medium">{p.category} · {p.scene}</div>
+                    <div className="text-xs text-[#1D1D1F] font-medium">{p.category} {p.scene ? `· ${p.scene}` : ''}</div>
                   </TableCell>
                   <TableCell>
-                    <span className="text-[11px] text-[#1D1D1F] font-medium">{p.assignedOwner?.split('@')[0] || p.ownerName}</span>
+                    <span className="text-xs text-[#1D1D1F] font-medium">{getUserDisplayName(p.assignedOwner || p.ownerName)}</span>
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-[11px] font-bold text-[#1D1D1F]">{p.shop}</span>
-                      <span className="text-[10px] text-[#86868B] font-bold">{p.channel}</span>
+                      <span className="text-sm font-bold text-[#1D1D1F]">{p.shop}</span>
+                      <span className="text-xs text-[#86868B] font-bold">{p.channel}</span>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -725,9 +799,9 @@ export const ProductManagement: React.FC = () => {
                           <Checkbox 
                             checked={!!p.steps?.[step]} 
                             onCheckedChange={() => toggleStep(p.id, step, !!p.steps?.[step])}
-                            className="w-3.5 h-3.5 rounded-sm border-black/10 data-[state=checked]:bg-[#FF6B00] data-[state=checked]:border-[#FF6B00]"
+                            className="w-4 h-4 rounded-sm border-black/10 data-[state=checked]:bg-[#FF6B00] data-[state=checked]:border-[#FF6B00]"
                           />
-                          <span className={cn("text-[10px] font-bold", p.steps?.[step] ? "text-[#1D1D1F]" : "text-[#86868B]")}>{step}</span>
+                          <span className={cn("text-xs font-bold", p.steps?.[step] ? "text-[#1D1D1F]" : "text-[#86868B]")}>{step}</span>
                         </div>
                       ))}
                     </div>
@@ -736,7 +810,7 @@ export const ProductManagement: React.FC = () => {
                     <Select value={p.result} onValueChange={(val) => updateResult(p.id, val)}>
                       <Tooltip content={judgments.find((j: any) => j.label === p.result)?.definition || '暂无定义'}>
                         <SelectTrigger 
-                          className="w-[80px] h-7 rounded-lg border-none shadow-none text-[10px] font-bold"
+                          className="w-[90px] h-8 rounded-lg border-none shadow-none text-xs font-bold"
                           style={getResultStyle(p.result)}
                         >
                           <SelectValue>{p.result || '待设置'}</SelectValue>
@@ -746,7 +820,7 @@ export const ProductManagement: React.FC = () => {
                         {judgments.map((j: any) => (
                           <React.Fragment key={j.label}>
                             <Tooltip content={j.definition} side="right">
-                              <SelectItem value={j.label} className="text-[10px]">
+                              <SelectItem value={j.label} className="text-xs">
                                 <div className="flex items-center justify-between w-full gap-2">
                                   <span>{j.label}</span>
                                 </div>
@@ -791,15 +865,15 @@ export const ProductManagement: React.FC = () => {
                       <Copy size={14} />
                     </Button>
                   </div>
-                  <div className="text-[10px] text-[#FF6B00] font-bold mt-0.5">
+                  <div className="text-xs text-[#FF6B00] font-bold mt-0.5">
                     {p.uploadTime?.split('T')[0]} · 已上架 {calculateDays(p.uploadTime)} 天
                   </div>
-                  <p className="text-xs text-[#86868B] font-bold mt-1">{p.category} · {p.scene}</p>
+                  <p className="text-xs text-[#86868B] font-bold mt-1">{p.category} {p.scene ? `· ${p.scene}` : ''}</p>
                 </div>
                 <Select value={p.result} onValueChange={(val) => updateResult(p.id, val)}>
                   <Tooltip content={judgments.find((j: any) => j.label === p.result)?.definition || '暂无定义'}>
                     <SelectTrigger 
-                      className="w-[70px] h-6 rounded-lg border-none shadow-none text-[10px] font-bold"
+                      className="w-[80px] h-7 rounded-lg border-none shadow-none text-xs font-bold"
                       style={getResultStyle(p.result)}
                     >
                       <SelectValue>{p.result || '待设置'}</SelectValue>
@@ -809,7 +883,7 @@ export const ProductManagement: React.FC = () => {
                     {judgments.map((j: any) => (
                       <React.Fragment key={j.label}>
                         <Tooltip content={j.definition} side="right">
-                          <SelectItem value={j.label} className="text-[10px]">{j.label}</SelectItem>
+                          <SelectItem value={j.label} className="text-xs">{j.label}</SelectItem>
                         </Tooltip>
                       </React.Fragment>
                     ))}
@@ -817,9 +891,9 @@ export const ProductManagement: React.FC = () => {
                 </Select>
               </div>
               <div className="flex flex-wrap gap-2 mb-4">
-                <span className="text-[10px] px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{p.channel}</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{p.shop}</span>
-                <span className="text-[10px] px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{p.assignedOwner?.split('@')[0] || p.ownerName}</span>
+                <span className="text-xs px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{p.channel}</span>
+                <span className="text-xs px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{p.shop}</span>
+                <span className="text-xs px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{getUserDisplayName(p.assignedOwner || p.ownerName)}</span>
               </div>
               <div className="grid grid-cols-2 gap-2 pt-4 border-t border-black/5">
                 {(settings.channels[p.channel]?.sop || []).map((step: string) => (
@@ -827,14 +901,14 @@ export const ProductManagement: React.FC = () => {
                     <Checkbox 
                       checked={!!p.steps?.[step]} 
                       onCheckedChange={() => toggleStep(p.id, step, !!p.steps?.[step])} 
-                      className="w-3.5 h-3.5 rounded-sm border-black/10 data-[state=checked]:bg-[#FF6B00]" 
+                      className="w-4 h-4 rounded-sm border-black/10 data-[state=checked]:bg-[#FF6B00]" 
                     />
-                    <span className={cn("text-[10px] font-bold", p.steps?.[step] ? "text-[#1D1D1F]" : "text-[#86868B]")}>{step}</span>
+                    <span className={cn("text-xs font-bold", p.steps?.[step] ? "text-[#1D1D1F]" : "text-[#86868B]")}>{step}</span>
                   </div>
                 ))}
               </div>
               <div className="mt-4 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button variant="ghost" size="sm" className="text-red-500 text-[10px] font-bold gap-1" onClick={() => handleDelete(p.id)}>
+                <Button variant="ghost" size="sm" className="text-red-500 text-xs font-bold gap-1 h-8" onClick={() => handleDelete(p.id)}>
                   <Trash2 size={12} /> 删除链接
                 </Button>
               </div>

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
+import { logOperation } from '../lib/logger';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -19,6 +20,7 @@ export const Planning: React.FC = () => {
   const location = useLocation();
   const [plannings, setPlannings] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>({ channels: {} });
+  const [users, setUsers] = useState<any[]>([]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const allShops = React.useMemo(() => {
@@ -81,20 +83,47 @@ export const Planning: React.FC = () => {
       if (doc.exists()) setSettings(doc.data());
     });
 
-    const q = isAdmin ? collection(db, 'plannings') : query(collection(db, 'plannings'), where('ownerId', '==', profile?.uid || ''));
+    const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
+    let q;
+    if (isAdmin) {
+      q = collection(db, 'plannings');
+    } else if (allowedShops.length > 0) {
+      q = query(collection(db, 'plannings'), where('shop', 'in', allowedShops.slice(0, 30)));
+    } else {
+      q = query(collection(db, 'plannings'), where('shop', '==', 'NONE_ASSIGNED'));
+    }
+
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setPlannings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      if (!isAdmin) {
+        docs = docs.filter(doc => {
+          const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+          if (!shopPerm) return false;
+          if (shopPerm.canViewPast) return true;
+          const docDate = new Date(doc.createdAt || 0);
+          const takeoverDate = new Date(shopPerm.takeoverTime);
+          return docDate >= takeoverDate;
+        });
+      }
+      setPlannings(docs);
     });
+    
+    // Add missing users subscription
+    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     return () => {
       unsubSettings();
       unsubscribe();
+      unsubUsers();
     };
   }, [isAdmin, profile]);
 
   const handleAdd = async () => {
     if (!formData.channel || !formData.shop) return toast.error('请选择渠道和店铺');
     try {
-      await addDoc(collection(db, 'plannings'), {
+      const docRef = await addDoc(collection(db, 'plannings'), {
         ...formData,
         plannedCount: Number(formData.plannedCount),
         uploadedCount: 0,
@@ -102,6 +131,7 @@ export const Planning: React.FC = () => {
         ownerName: profile.displayName || profile.email,
         createdAt: new Date().toISOString(),
       });
+      await logOperation('CREATE', 'PLANNING', docRef.id, `新增规划: ${formData.category} - ${formData.shop}`, profile);
       setIsAddOpen(false);
       toast.success('规划添加成功');
     } catch (error) {
@@ -111,7 +141,9 @@ export const Planning: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
+      const planning = plannings.find(p => p.id === id);
       await deleteDoc(doc(db, 'plannings', id));
+      await logOperation('DELETE', 'PLANNING', id, `删除规划: ${planning?.category || '未知'} - ${planning?.shop || '未知'}`, profile);
       toast.success('已删除规划');
     } catch (error) {
       toast.error('删除失败');
@@ -262,9 +294,22 @@ export const Planning: React.FC = () => {
       const data = XLSX.utils.sheet_to_json(ws);
       
       let successCount = 0;
+      let skippedCount = 0;
+      const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
+      
       for (const item of data as any[]) {
         try {
-          await addDoc(collection(db, 'plannings'), {
+          const itemShop = item['店铺'];
+          
+          // Check permissions if not admin
+          if (!isAdmin) {
+            if (!allowedShops.includes(itemShop)) {
+              skippedCount++;
+              continue;
+            }
+          }
+
+          const docRef = await addDoc(collection(db, 'plannings'), {
             month: String(item['月份']),
             source: item['商机来源'] || '',
             category: item['品类'],
@@ -272,16 +317,22 @@ export const Planning: React.FC = () => {
             keywords: item['核心关键词'],
             plannedCount: Number(item['规划数量']),
             channel: item['渠道'],
-            shop: item['店铺'],
+            shop: itemShop,
             uploadedCount: 0,
             ownerId: profile.uid,
             ownerName: profile.displayName || profile.email,
             createdAt: new Date().toISOString(),
           });
+          await logOperation('CREATE', 'PLANNING', docRef.id, `导入规划: ${item['品类']} - ${itemShop}`, profile);
           successCount++;
         } catch (err) {}
       }
-      toast.success(`成功导入 ${successCount} 条数据`);
+      
+      if (skippedCount > 0) {
+        toast.warning(`成功导入 ${successCount} 条数据，跳过 ${skippedCount} 条无权限的店铺数据`);
+      } else {
+        toast.success(`成功导入 ${successCount} 条数据`);
+      }
     };
     reader.readAsBinaryString(file);
   };
@@ -291,8 +342,15 @@ export const Planning: React.FC = () => {
   const uniqueDays = Array.from(new Set(plannings.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean))).sort().reverse() as string[];
   const uniqueChannels = Array.from(new Set(plannings.map(p => p.channel).filter(Boolean))) as string[];
   const uniqueShops = Array.from(new Set(plannings.map(p => p.shop).filter(Boolean))) as string[];
-  const uniqueOwners = Array.from(new Set(plannings.map(p => p.ownerName).filter(Boolean))) as string[];
   const uniqueCategories = Array.from(new Set(plannings.map(p => p.category).filter(Boolean))) as string[];
+
+  const getUserDisplayName = (emailOrName: string) => {
+    if (!emailOrName) return '未知';
+    const user = users.find(u => u.email === emailOrName || u.displayName === emailOrName || u.username === emailOrName);
+    return user?.displayName || user?.username || emailOrName.split('@')[0];
+  };
+
+  const uniqueOwners = Array.from(new Set(plannings.map(p => getUserDisplayName(p.ownerName)).filter(Boolean))) as string[];
 
   const filteredPlannings = plannings.filter(p => {
     const pYear = p.month?.split('-')[0];
@@ -304,7 +362,7 @@ export const Planning: React.FC = () => {
     const matchesDay = filterDay === 'all' || pDay === filterDay;
     const matchesChannel = filterChannel === 'all' || p.channel === filterChannel;
     const matchesShop = filterShop === 'all' || p.shop === filterShop;
-    const matchesOwner = filterOwner === 'all' || p.ownerName === filterOwner;
+    const matchesOwner = filterOwner === 'all' || getUserDisplayName(p.ownerName) === filterOwner;
     const matchesCategory = filterCategory === 'all' || p.category === filterCategory;
     
     return matchesYear && matchesMonth && matchesDay && matchesChannel && matchesShop && matchesOwner && matchesCategory;
@@ -320,7 +378,7 @@ export const Planning: React.FC = () => {
         <div className="flex items-center gap-4">
           <div className="flex bg-[#E3E3E8] p-1 rounded-xl gap-1 overflow-x-auto custom-scrollbar flex-nowrap shrink-0 max-w-full">
             <Select value={filterYear} onValueChange={setFilterYear}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterYear === 'all' ? '全部年' : `${filterYear}年`}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -329,7 +387,7 @@ export const Planning: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterMonth} onValueChange={setFilterMonth}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterMonth === 'all' ? '全部月' : `${filterMonth}月`}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -338,7 +396,7 @@ export const Planning: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterDay} onValueChange={setFilterDay}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterDay === 'all' ? '全部日' : `${filterDay}日`}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -347,7 +405,7 @@ export const Planning: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterChannel} onValueChange={setFilterChannel}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterChannel === 'all' ? '全部渠道' : filterChannel}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -356,7 +414,7 @@ export const Planning: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterShop} onValueChange={setFilterShop}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterShop === 'all' ? '全部店铺' : filterShop}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -365,8 +423,8 @@ export const Planning: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterOwner} onValueChange={setFilterOwner}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
-                <SelectValue>{filterOwner === 'all' ? '全部负责人' : filterOwner}</SelectValue>
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+                <SelectValue placeholder="全部负责人">{filterOwner === 'all' ? '全部负责人' : filterOwner}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
                 <SelectItem value="all">全部负责人</SelectItem>
@@ -374,7 +432,7 @@ export const Planning: React.FC = () => {
               </SelectContent>
             </Select>
             <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="h-7 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-[10px] font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterCategory === 'all' ? '全部品类' : filterCategory}</SelectValue>
               </SelectTrigger>
               <SelectContent className="rounded-xl">
@@ -504,21 +562,21 @@ export const Planning: React.FC = () => {
         <Table>
           <TableHeader className="bg-[#F5F5F7]">
             <TableRow className="hover:bg-transparent border-none">
-              <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">月份</TableHead>
-              <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">商机来源</TableHead>
-              <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">品类</TableHead>
-              <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">场景</TableHead>
-              <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">核心关键词</TableHead>
-              <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 text-center">规划/已上架</TableHead>
-              <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">负责人</TableHead>
-              <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">店铺/渠道</TableHead>
-              <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 text-right">操作</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">月份</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">商机来源</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">品类</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">场景</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">核心关键词</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4 text-center">规划/已上架</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">负责人</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">店铺/渠道</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4 text-right">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredPlannings.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-[#86868B] text-sm">
+                <TableCell colSpan={9} className="h-32 text-center text-[#86868B] text-sm">
                   {(filterYear !== 'all' || filterMonth !== 'all' || filterDay !== 'all' || filterChannel !== 'all' || filterShop !== 'all' || filterOwner !== 'all' || filterCategory !== 'all') ? '未找到匹配的规划' : '暂无规划数据'}
                 </TableCell>
               </TableRow>
@@ -534,13 +592,13 @@ export const Planning: React.FC = () => {
                     <div className="text-sm font-medium text-[#1D1D1F]">{p.month}</div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-[11px] text-[#86868B] font-bold">{p.source}</div>
+                    <div className="text-xs text-[#86868B] font-bold">{p.source || '-'}</div>
                   </TableCell>
                   <TableCell>
                     <div className="text-sm font-bold text-[#1D1D1F]">{p.category}</div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-[11px] text-[#86868B] font-medium">{p.scene}</div>
+                    <div className="text-xs text-[#86868B] font-medium">{p.scene}</div>
                   </TableCell>
                   <TableCell className="text-sm text-[#1D1D1F] max-w-[200px] truncate">{p.keywords}</TableCell>
                   <TableCell className="text-center">
@@ -548,10 +606,10 @@ export const Planning: React.FC = () => {
                     <span className="text-[#86868B] mx-1 text-sm">/</span>
                     <span className="text-sm text-[#1D1D1F] font-bold">{p.plannedCount}</span>
                   </TableCell>
-                  <TableCell className="text-sm text-[#1D1D1F] font-medium">{p.ownerName}</TableCell>
+                  <TableCell className="text-sm text-[#1D1D1F] font-medium">{getUserDisplayName(p.ownerName)}</TableCell>
                   <TableCell>
                     <div className="text-sm text-[#1D1D1F] font-bold">{p.shop}</div>
-                    <div className="text-[11px] text-[#86868B] font-medium">{p.channel}</div>
+                    <div className="text-xs text-[#86868B] font-medium mt-0.5">{p.channel}</div>
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

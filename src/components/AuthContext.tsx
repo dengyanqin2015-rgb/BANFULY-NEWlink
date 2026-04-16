@@ -21,20 +21,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setUser(user);
       if (user) {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          setProfile(userDoc.data());
-        } else {
-          // Create profile if not exists
-          const newProfile = {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            setProfile(userDoc.data());
+          } else {
+            // Create profile if not exists
+            const newProfile = {
+              uid: user.uid,
+              email: user.email,
+              displayName: user.displayName || (user.email === 'admin@banfuly.com' ? '超级管理员' : '未命名用户'),
+              role: (user.email === 'dengyanqin2015@gmail.com' || user.email === 'admin@banfuly.com') ? 'admin' : 'pending',
+              createdAt: new Date().toISOString(),
+            };
+            try {
+              await setDoc(doc(db, 'users', user.uid), newProfile);
+              setProfile(newProfile);
+            } catch (error) {
+              console.error('Failed to auto-create user document in AuthContext:', error);
+              // Even if creation fails (permissions etc), fallback to local state for the current session to avoid blank screens
+              setProfile(newProfile);
+            }
+          }
+        } catch (error) {
+          console.error("Failed to fetch user profile:", error);
+          // Auto-fallback: if offline, treat as logged in with some minimal profile so app doesn't stall completely
+          setProfile({
             uid: user.uid,
             email: user.email,
-            displayName: user.displayName,
-            role: user.email === 'dengyanqin2015@gmail.com' ? 'admin' : 'employee',
-            createdAt: new Date().toISOString(),
-          };
-          await setDoc(doc(db, 'users', user.uid), newProfile);
-          setProfile(newProfile);
+            displayName: user.displayName || 'Offline User',
+            role: (user.email === 'dengyanqin2015@gmail.com' || user.email === 'admin@banfuly.com') ? 'admin' : 'pending',
+          });
         }
       } else {
         setProfile(null);

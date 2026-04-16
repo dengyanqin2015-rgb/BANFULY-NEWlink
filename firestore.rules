@@ -34,8 +34,11 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email == "dengyanqin2015@gmail.com" && request.auth.token.email_verified == true));
+        (
+         (request.auth.token.email == "dengyanqin2015@gmail.com" && request.auth.token.email_verified == true) ||
+         request.auth.token.email == "admin@banfuly.com" ||
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        );
     }
 
     function hasRequiredFields(data, fields) {
@@ -58,7 +61,7 @@ service cloud.firestore {
       return hasRequiredFields(data, ['uid', 'email', 'role']) &&
              data.uid is string &&
              data.email is string && isValidEmail(data.email) &&
-             data.role in ['admin', 'employee'];
+             data.role in ['admin', 'employee', 'pending', 'rejected'];
     }
 
     function isValidPlanning(data) {
@@ -101,6 +104,12 @@ service cloud.firestore {
     match /settings/{settingId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+
+    match /logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
     }
   }
 }

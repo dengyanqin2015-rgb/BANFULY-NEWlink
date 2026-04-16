@@ -60,11 +60,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
         <div className="p-4 border-t border-gray-100">
           <div className="flex items-center gap-3 px-4 py-3 mb-2">
-            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600">
-              {profile?.displayName?.[0] || profile?.email?.[0]?.toUpperCase()}
+            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600 uppercase">
+              {profile?.displayName?.[0] || profile?.email?.[0]}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold truncate">{profile?.displayName || profile?.email}</p>
+              <p className="text-sm font-semibold truncate">{profile?.displayName || profile?.email?.split('@')[0]}</p>
               <p className="text-xs text-gray-400 uppercase tracking-wider">{profile?.role}</p>
             </div>
           </div>
@@ -80,8 +80,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-8 overflow-auto">
-        <div className="w-full mx-auto">
+      <main className="flex-1 p-6 md:p-8 overflow-auto min-w-0">
+        <div className="w-full mx-auto max-w-[2000px]">
           {children}
         </div>
       </main>
