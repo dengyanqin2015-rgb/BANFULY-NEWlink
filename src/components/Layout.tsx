@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Target, Package, LayoutGrid, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Target, Package, LayoutGrid, Settings, LogOut, Lightbulb } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { auth } from '@/lib/firebase';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ const navItems = [
   { name: '上新规划', icon: Target, path: '/planning' },
   { name: '链接管理', icon: Package, path: '/products' },
   { name: '进度监控', icon: LayoutGrid, path: '/progress' },
+  { name: '头脑风暴', icon: Lightbulb, path: '/brainstorming' },
   { name: '系统设置', icon: Settings, path: '/settings' },
 ];
 

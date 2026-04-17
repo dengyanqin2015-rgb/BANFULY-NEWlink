@@ -7,6 +7,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Planning } from './pages/Planning';
 import { ProductManagement } from './pages/ProductManagement';
 import { BentoProgress } from './pages/BentoProgress';
+import { Brainstorming } from './pages/Brainstorming';
 import { Settings } from './pages/Settings';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -32,6 +33,8 @@ export default function App() {
           <Route path="/planning" element={<AuthGuard><Planning /></AuthGuard>} />
           <Route path="/products" element={<AuthGuard><ProductManagement /></AuthGuard>} />
           <Route path="/progress" element={<AuthGuard><BentoProgress /></AuthGuard>} />
+          <Route path="/brainstorming" element={<AuthGuard><Brainstorming /></AuthGuard>} />
+          <Route path="/brainstorming/:id" element={<AuthGuard><Brainstorming /></AuthGuard>} />
           <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
         </Routes>
       </BrowserRouter>

@@ -19,6 +19,7 @@ export const Planning: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [plannings, setPlannings] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [settings, setSettings] = useState<any>({ channels: {} });
   const [users, setUsers] = useState<any[]>([]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -113,12 +114,29 @@ export const Planning: React.FC = () => {
       setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     return () => {
       unsubSettings();
       unsubscribe();
       unsubUsers();
+      unsubProducts();
     };
   }, [isAdmin, profile]);
+
+  // Auto-fix discrepancies in uploadedCount
+  useEffect(() => {
+    if (plannings.length > 0 && products.length > 0) {
+      plannings.forEach(p => {
+        const actualCount = products.filter(pr => pr.planningId === p.id).length;
+        if (p.uploadedCount !== actualCount) {
+          updateDoc(doc(db, 'plannings', p.id), { uploadedCount: actualCount }).catch(() => {});
+        }
+      });
+    }
+  }, [plannings, products]);
 
   const handleAdd = async () => {
     if (!formData.channel || !formData.shop) return toast.error('请选择渠道和店铺');
@@ -602,7 +620,9 @@ export const Planning: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-sm text-[#1D1D1F] max-w-[200px] truncate">{p.keywords}</TableCell>
                   <TableCell className="text-center">
-                    <span className="text-sm font-bold text-[#FF6B00]">{p.uploadedCount || 0}</span>
+                    <span className="text-sm font-bold text-[#FF6B00]">
+                      {products.filter(pr => pr.planningId === p.id).length}
+                    </span>
                     <span className="text-[#86868B] mx-1 text-sm">/</span>
                     <span className="text-sm text-[#1D1D1F] font-bold">{p.plannedCount}</span>
                   </TableCell>
@@ -632,3 +652,4 @@ export const Planning: React.FC = () => {
     </div>
   );
 };
+

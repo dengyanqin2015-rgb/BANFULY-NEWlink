@@ -4,15 +4,16 @@ import { collection, onSnapshot, query, where, doc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { cn } from '@/lib/utils';
-import { X, Settings2, TrendingUp, Target, Package } from 'lucide-react';
+import { X, Settings2, TrendingUp, Target, Package, CheckSquare, Filter } from 'lucide-react';
 import { toast } from 'sonner';
+import { motion } from 'motion/react';
 
 const COLORS = ['#FF6B00', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#06B6D4', '#6366F1', '#84CC16'];
 const getColor = (index: number) => COLORS[index % COLORS.length];
@@ -35,6 +36,18 @@ export const Dashboard: React.FC = () => {
 
   const [rankingDimension, setRankingDimension] = useState<'shop' | 'ownerName' | 'category' | 'source'>('shop');
   const [chartMetrics, setChartMetrics] = useState<string[]>(['uploaded']);
+
+  const [isFunnelConfigOpen, setIsFunnelConfigOpen] = useState(false);
+  const [visibleSops, setVisibleSops] = useState<Record<string, string[]> | null>(() => {
+    const saved = localStorage.getItem('dashboard-visible-sops-v2');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [tempSops, setTempSops] = useState<Record<string, string[]>>({});
+  const [visibleChannels, setVisibleChannels] = useState<string[] | null>(() => {
+    const saved = localStorage.getItem('dashboard-visible-channels');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [tempChannels, setTempChannels] = useState<string[]>([]);
 
   const [previewProducts, setPreviewProducts] = useState<any[] | null>(null);
   const [previewTitle, setPreviewTitle] = useState('');
@@ -286,6 +299,45 @@ export const Dashboard: React.FC = () => {
 
   const allChartOptions = [...baseMetrics, ...channelMetrics, ...shopMetrics, ...categoryMetrics, ...ownerMetrics];
 
+  const systemChannels = settings.channels ? Object.keys(settings.channels) : [];
+  const allAvailableChannels = systemChannels.length > 0 ? systemChannels : uniqueChannels.map(String);
+  const activeChannels = visibleChannels !== null ? visibleChannels : allAvailableChannels;
+
+  const defaultSops: Record<string, string[]> = {};
+  allAvailableChannels.forEach(ch => {
+    defaultSops[ch] = settings.channels?.[ch]?.sop || [];
+  });
+  const activeSops = visibleSops !== null ? visibleSops : defaultSops;
+
+  const sopFunnelData = activeChannels.map(channel => {
+    let planned = 0;
+    let uploaded = 0;
+    const channelSops = activeSops[channel] || [];
+    const sops: Record<string, number> = {};
+    channelSops.forEach(s => sops[s] = 0);
+
+    filteredPlannings.forEach(p => {
+      if ((p.channel || '未分类') === channel) {
+        planned += p.plannedCount || 0;
+      }
+    });
+
+    filteredProducts.forEach(p => {
+      if ((p.channel || '未分类') === channel) {
+        uploaded += 1;
+        if (p.steps) {
+          Object.entries(p.steps).forEach(([step, checked]) => {
+            if (channelSops.includes(step) && checked) {
+              sops[step] += 1;
+            }
+          });
+        }
+      }
+    });
+    
+    return { name: channel, planned, uploaded, channelSops, sops };
+  });
+
   const getChartData = () => {
     const dataMap = new Map();
     const timeKey = filterMonth !== 'all' ? 'day' : 'month';
@@ -423,7 +475,109 @@ export const Dashboard: React.FC = () => {
         </Tabs>
       </div>
 
-      {/* 3. 走势与排行矩阵 (Bento Grid) */}
+      {/* 3. 各渠道 SOP 履约全景图 */}
+      <div className="w-full space-y-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 px-2">
+          <div>
+            <h2 className="text-xl font-bold text-[#1D1D1F]">各渠道 SOP 履约全景图</h2>
+            <p className="text-xs text-[#86868B] mt-1">SOP Funnel · 以渠道为维度的核心运营动作转化漏斗</p>
+          </div>
+          <button
+            onClick={() => {
+              setTempSops(activeSops);
+              setTempChannels(activeChannels);
+              setIsFunnelConfigOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-black/5 text-[#1D1D1F] rounded-lg text-xs font-bold hover:bg-[#F5F5F7] transition-colors shadow-sm shrink-0"
+          >
+            <Settings2 size={14} />
+            设置看板视图
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          {sopFunnelData.map((cd, index) => (
+            <div key={cd.name} className="flex flex-col bg-white rounded-[20px] shadow-sm border border-black/5 overflow-hidden hover:shadow-md transition-shadow duration-300">
+              
+              {/* Header Section */}
+              <div className="flex items-center justify-between px-5 py-3.5 bg-gradient-to-r from-gray-50/80 to-transparent border-b border-black/[0.03]">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-1.5 h-3.5 bg-[#1D1D1F] rounded-full" />
+                  <h3 className="text-[14px] font-bold text-[#1D1D1F] tracking-tight">{cd.name}</h3>
+                </div>
+                <div className="text-[10px] font-bold text-[#86868B] px-2 py-0.5 bg-white border border-black/[0.04] rounded-full shadow-sm">
+                  {cd.channelSops.length} 个节点
+                </div>
+              </div>
+              
+              {/* Dense Pipeline Nodes */}
+              <div className="flex w-full items-stretch p-3 md:p-4">
+                {cd.channelSops.map((step, i) => {
+                  const completed = cd.sops[step] || 0;
+                  const rate = cd.planned > 0 ? Math.round((completed / cd.planned) * 100) : 0;
+                  const isLast = i === cd.channelSops.length - 1;
+                  const isComplete = rate >= 100;
+                  
+                  return (
+                    <motion.div
+                      key={step}
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.02 + index * 0.1 }}
+                      className={cn(
+                        "flex flex-col flex-1 min-w-0 px-2 md:px-3",
+                        !isLast && "border-r border-black/[0.04]"
+                      )}
+                    >
+                      <h4 
+                        className="text-[10px] xl:text-[11px] font-bold text-[#86868B] truncate mb-2 leading-none" 
+                        title={step}
+                      >
+                        {step}
+                      </h4>
+                      
+                      <div className="flex items-baseline gap-1 xl:gap-1.5 mb-2.5">
+                        <span className="text-lg xl:text-xl font-black text-[#1D1D1F] leading-none tracking-tight">
+                          {completed}
+                        </span>
+                        <span className="text-[9px] xl:text-[10px] font-bold text-[#A1A1A6] font-mono leading-none tracking-tighter">
+                          /{cd.planned}
+                        </span>
+                      </div>
+                      
+                      <div className="mt-auto flex items-center justify-between gap-1.5">
+                        <div className="h-1.5 flex-1 bg-[#F5F5F7] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full rounded-full transition-all duration-1000 ease-out" 
+                            style={{ 
+                              width: `${Math.min(rate, 100)}%`,
+                              backgroundColor: isComplete ? '#10B981' : rate > 0 ? '#1D1D1F' : '#E5E5EA'
+                            }} 
+                          />
+                        </div>
+                        <span className={cn(
+                          "text-[9px] font-bold font-mono text-right w-6 flex-shrink-0",
+                          isComplete ? "text-[#10B981]" : rate > 0 ? "text-[#1D1D1F]" : "text-[#A1A1A6]"
+                        )}>
+                          {Math.min(rate, 999)}%
+                        </span>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+          {sopFunnelData.length === 0 && (
+            <div className="bg-white p-8 rounded-[24px] shadow-sm border border-black/5 text-center flex flex-col items-center text-[#86868B]">
+              <Target size={40} className="mb-4 opacity-20" />
+              <p className="text-sm font-bold">暂无选中的渠道数据，请点击右上角配置看板视图</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 4. 走势与排行矩阵 (Bento Grid) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[500px]">
         {/* Left: Ranking */}
         <div className="col-span-1 h-full">
@@ -578,6 +732,88 @@ export const Dashboard: React.FC = () => {
                 </TableBody>
               </Table>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      {/* Funnel Config Modal */}
+      <Dialog open={isFunnelConfigOpen} onOpenChange={setIsFunnelConfigOpen}>
+        <DialogContent className="max-w-xl rounded-[24px]">
+          <DialogHeader>
+            <DialogTitle>设置 SOP 漏斗首屏视图</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+            {allAvailableChannels.map(channel => {
+              const isChannelSelected = tempChannels.includes(channel);
+              const channelSopList = settings.channels?.[channel]?.sop || [];
+              const selectedSops = tempSops[channel] || [];
+
+              return (
+                <div key={channel} className={cn("space-y-3 p-4 rounded-2xl border transition-all", isChannelSelected ? "bg-white border-black/10 shadow-sm" : "bg-[#F5F5F7]/50 border-transparent")}>
+                  <label className="flex items-center gap-3 font-bold text-[#1D1D1F] cursor-pointer">
+                    <Checkbox 
+                      checked={isChannelSelected}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setTempChannels([...tempChannels, channel]);
+                          if (!tempSops[channel]) {
+                            setTempSops({ ...tempSops, [channel]: channelSopList });
+                          }
+                        } else {
+                          setTempChannels(tempChannels.filter(c => c !== channel));
+                        }
+                      }}
+                      className="rounded-[4px] data-[state=checked]:bg-[#1D1D1F] data-[state=checked]:border-[#1D1D1F]"
+                    />
+                    <span className="text-sm">{channel} <span className="text-xs text-[#86868B] font-normal ml-1">({channelSopList.length} 个动作节点)</span></span>
+                  </label>
+
+                  <div className={cn("flex flex-wrap gap-2 pl-7", !isChannelSelected && "opacity-40 pointer-events-none grayscale")}>
+                    {channelSopList.length > 0 ? channelSopList.map((step: string) => {
+                      const isSopSelected = selectedSops.includes(step);
+                      return (
+                        <button
+                          key={step}
+                          onClick={() => {
+                            const newSelectedSops = isSopSelected 
+                              ? selectedSops.filter(s => s !== step)
+                              : [...selectedSops, step];
+                            setTempSops({ ...tempSops, [channel]: newSelectedSops });
+                          }}
+                          className={cn(
+                            "px-3 py-1.5 rounded-lg text-xs font-bold transition-all border",
+                            isSopSelected ? "bg-blue-50 border-blue-200 text-blue-600 shadow-sm" : "bg-white border-black/10 text-[#86868B] hover:border-black/20 hover:bg-[#F5F5F7]"
+                          )}
+                        >
+                          {step}
+                        </button>
+                      );
+                    }) : (
+                      <span className="text-xs text-[#86868B] bg-white px-2 py-1 rounded border border-black/5">未配置 SOP 节点，请去系统设置里配置</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-end gap-2 mt-2 pt-4 border-t border-black/5">
+            <button
+              onClick={() => setIsFunnelConfigOpen(false)}
+              className="px-4 py-2 text-sm font-bold text-[#86868B] hover:text-[#1D1D1F]"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => {
+                setVisibleSops(tempSops);
+                setVisibleChannels(tempChannels);
+                localStorage.setItem('dashboard-visible-sops-v2', JSON.stringify(tempSops));
+                localStorage.setItem('dashboard-visible-channels', JSON.stringify(tempChannels));
+                setIsFunnelConfigOpen(false);
+              }}
+              className="px-4 py-2 bg-[#1D1D1F] text-white rounded-xl text-sm font-bold shadow-sm"
+            >
+              保存看板视图配置
+            </button>
           </div>
         </DialogContent>
       </Dialog>

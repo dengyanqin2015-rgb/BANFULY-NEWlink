@@ -77,6 +77,30 @@
         "scenes": { "type": "array", "items": { "type": "string" } },
         "dynamicFlows": { "type": "object" }
       }
+    },
+    "Mindmap": {
+      "title": "Mindmap",
+      "description": "Brainstorming mindmaps",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "data": { "type": "string" },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "userId": { "type": "string" },
+              "role": { "type": "string", "enum": ["viewer", "editor", "manager"] }
+            }
+          }
+        }
+      },
+      "required": ["title", "ownerId"]
     }
   },
   "firestore": {
@@ -95,6 +119,10 @@
     "/settings/global": {
       "schema": "Setting",
       "description": "Global settings"
+    },
+    "/mindmaps/{mindmapId}": {
+      "schema": "Mindmap",
+      "description": "Brainstorming maps"
     }
   }
 }
