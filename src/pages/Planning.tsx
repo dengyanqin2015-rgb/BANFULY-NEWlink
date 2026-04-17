@@ -329,33 +329,37 @@ export const Planning: React.FC = () => {
       
       for (const item of data as any[]) {
         try {
-          const itemShop = item['店铺'];
+          const itemShop = String(item['店铺'] || '').trim();
           
           // Check permissions if not admin
           if (!isAdmin) {
-            if (!allowedShops.includes(itemShop)) {
+            const hasPermission = allowedShops.some((s: string) => String(s).trim() === itemShop);
+            if (!hasPermission) {
               skippedCount++;
               continue;
             }
           }
 
           const docRef = await addDoc(collection(db, 'plannings'), {
-            month: String(item['月份']),
+            month: String(item['月份'] || ''),
             source: item['商机来源'] || '',
-            category: item['品类'],
-            scene: item['场景'],
-            keywords: item['核心关键词'],
-            plannedCount: Number(item['规划数量']),
-            channel: item['渠道'],
+            category: item['品类'] || '',
+            scene: item['场景'] || '',
+            keywords: item['核心关键词'] || '',
+            plannedCount: Number(item['规划数量'] || 0),
+            channel: item['渠道'] || '',
             shop: itemShop,
             uploadedCount: 0,
             ownerId: profile.uid,
             ownerName: profile.displayName || profile.email,
+            companyId: currentCompanyId,
             createdAt: new Date().toISOString(),
           });
           await logOperation('CREATE', 'PLANNING', docRef.id, `导入规划: ${item['品类']} - ${itemShop}`, profile);
           successCount++;
-        } catch (err) {}
+        } catch (err) {
+          console.error('Import error for item:', item, err);
+        }
       }
       
       if (skippedCount > 0) {
