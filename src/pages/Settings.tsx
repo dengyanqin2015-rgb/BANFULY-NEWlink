@@ -30,6 +30,7 @@ export const Settings: React.FC = () => {
   });
   const [users, setUsers] = useState<any[]>([]);
   const [globalUsers, setGlobalUsers] = useState<any[]>([]);
+  const [globalUserSearch, setGlobalUserSearch] = useState('');
   const [allCompanies, setAllCompanies] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [newChannel, setNewChannel] = useState('');
@@ -1049,29 +1050,57 @@ export const Settings: React.FC = () => {
 
               {/* Global Users Management */}
               <div className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden flex flex-col h-[500px]">
-                <div className="p-6 border-b border-black/5 bg-purple-50/50">
+                <div className="p-6 border-b border-black/5 bg-purple-50/50 flex justify-between items-center">
                   <h3 className="text-sm font-bold flex items-center gap-2 text-purple-600">
                     <UserPlus size={18} />
                     全局员工大盘监控与调度
                   </h3>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Input 
+                        placeholder="搜索员工邮箱/姓名..." 
+                        value={globalUserSearch}
+                        onChange={(e) => setGlobalUserSearch(e.target.value)}
+                        className="h-8 w-[200px] text-xs pl-8 rounded-lg bg-white border-black/10"
+                      />
+                      <UserPlus className="absolute left-2.5 top-2.5 text-purple-400" size={14} />
+                    </div>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                  {globalUsers.map(user => (
+                  {globalUsers
+                    .filter(u => 
+                      !globalUserSearch || 
+                      u.email?.toLowerCase().includes(globalUserSearch.toLowerCase()) || 
+                      u.displayName?.toLowerCase().includes(globalUserSearch.toLowerCase()) ||
+                      u.username?.toLowerCase().includes(globalUserSearch.toLowerCase())
+                    )
+                    .map(user => (
                     <div key={user.id} className="p-4 bg-[#F5F5F7] rounded-xl border border-black/5 flex flex-col gap-3">
                       <div className="flex justify-between items-start">
                          <div>
-                            <p className="font-bold text-sm text-[#1D1D1F]">{user.displayName || user.username || user.email}</p>
+                            <p className="font-bold text-sm text-[#1D1D1F]">
+                               {user.displayName || user.username || user.email}
+                               {(!user.companyId || user.companyId === 'UNASSIGNED') && (
+                                 <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">待分流</span>
+                               )}
+                             </p>
                             <p className="text-[10px] text-[#86868B]">{user.email}</p>
                          </div>
                          <div className="flex gap-2">
                             <Select 
-                              value={user.companyId || 'HQ'}
+                              value={user.companyId || 'UNASSIGNED'}
                               onValueChange={(val) => handleGlobalUserCompanyChange(user.id, val)}
                             >
                               <SelectTrigger className="w-[120px] h-7 text-xs bg-white">
-                                <SelectValue />
+                                <SelectValue>
+                                   {user.companyId === 'UNASSIGNED' || !user.companyId 
+                                     ? '未分配公司' 
+                                     : allCompanies.find(c => c.id === user.companyId)?.name || (user.companyId === 'HQ' ? '半富利总公司' : user.companyId)}
+                               </SelectValue>
                               </SelectTrigger>
                               <SelectContent>
+                                <SelectItem value="UNASSIGNED">未分配公司</SelectItem>
                                 {allCompanies.map(c => (
                                   <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                                 ))}

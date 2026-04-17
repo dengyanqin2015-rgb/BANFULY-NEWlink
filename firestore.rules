@@ -111,7 +111,7 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if isAuthenticated() && (isOwner(uid) || belongsToCompany(resource.data) || isSuperAdmin());
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
-        (isOwner(uid) && request.resource.data.role in ['super_admin', 'pending'] && request.resource.data.companyId in ['UNASSIGNED', 'HQ']) ||
+        (isOwner(uid) && request.resource.data.role == 'pending') ||
         isSuperAdmin() || 
         (isAdmin() && request.resource.data.companyId == getUserCompanyId())
       );
@@ -168,7 +168,7 @@ service cloud.firestore {
     }
 
     match /companies/{companyId} {
-      allow read: if isAuthenticated(); // anyone can read company details
+      allow read: if true; // anyone can read company list to select during registration
       allow write: if isSuperAdmin();   // only superadmin can create/modify companies
     }
   }

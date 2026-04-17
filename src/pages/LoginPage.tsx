@@ -5,9 +5,10 @@ import {
   updateProfile
 } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { collection, doc, getDocs, setDoc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Package } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
@@ -20,8 +21,27 @@ export const LoginPage: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [realName, setRealName] = useState('');
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
   const navigate = useNavigate();
   const { user, profile } = useAuth();
+
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'companies'));
+        const comps = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setCompanies(comps);
+        // Default to HQ if it exists, otherwise first one
+        const hq = comps.find(c => c.id === 'HQ');
+        if (hq) setSelectedCompanyId('HQ');
+        else if (comps.length > 0) setSelectedCompanyId(comps[0].id);
+      } catch (err) {
+        console.error('Fetch companies error', err);
+      }
+    };
+    fetchCompanies();
+  }, []);
 
   useEffect(() => {
     if (user && profile) {
@@ -44,6 +64,11 @@ export const LoginPage: React.FC = () => {
     }
     if (!isLogin && !realName.trim()) {
       toast.error('请输入真实姓名');
+      return;
+    }
+
+    if (!isLogin && !selectedCompanyId) {
+      toast.error('请选择所属公司');
       return;
     }
 
@@ -101,7 +126,7 @@ export const LoginPage: React.FC = () => {
           username: trimmedUsername,
           displayName: realName.trim(),
           role: isSuper ? 'super_admin' : 'pending',
-          companyId: isSuper ? 'HQ' : 'UNASSIGNED',
+          companyId: isSuper ? 'HQ' : (selectedCompanyId || 'UNASSIGNED'),
           createdAt: new Date().toISOString(),
           permissions: []
         };
@@ -181,15 +206,40 @@ export const LoginPage: React.FC = () => {
           </div>
 
           {!isLogin && (
-            <div className="space-y-1 text-left">
-              <label className="text-xs font-bold text-[#86868B] ml-1">真实姓名 (中文)</label>
-              <Input 
-                placeholder="例如: 张三" 
-                value={realName}
-                onChange={(e) => setRealName(e.target.value)}
-                className="h-12 rounded-xl bg-[#F5F5F7] border-none px-4"
-              />
-            </div>
+            <>
+              <div className="space-y-1 text-left">
+                <label className="text-xs font-bold text-[#86868B] ml-1">真实姓名 (中文)</label>
+                <Input 
+                  placeholder="例如: 张三" 
+                  value={realName}
+                  onChange={(e) => setRealName(e.target.value)}
+                  className="h-12 rounded-xl bg-[#F5F5F7] border-none px-4"
+                />
+              </div>
+              <div className="space-y-1 text-left">
+                <label className="text-xs font-bold text-[#86868B] ml-1">所属分公司 (必选)</label>
+                <Select value={selectedCompanyId} onValueChange={setSelectedCompanyId}>
+                  <SelectTrigger className="h-12 rounded-xl bg-[#F5F5F7] border-none px-4">
+                    <SelectValue>
+                      {selectedCompanyId ? (
+                        companies.find(c => c.id === selectedCompanyId)?.name || 
+                        (selectedCompanyId === 'HQ' ? '半富利总公司' : selectedCompanyId)
+                      ) : (
+                        companies.length === 0 ? "正在加载分公司列表..." : "点击选择您所在的公司"
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {companies.length === 0 && <SelectItem value="loading" disabled>加载中...</SelectItem>}
+                    {companies.map(c => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name || (c.id === 'HQ' ? '半富利总公司' : c.id)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
           )}
 
           <div className="space-y-1 text-left">
