@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit, getDoc, where } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
 import { logOperation } from '../lib/logger';
@@ -10,13 +10,13 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { UserPlus, Globe, Workflow, ShieldCheck, Trash2, Plus, Store, ListChecks, ChevronUp, ChevronDown, GripVertical, Lightbulb, History, CheckCircle, XCircle } from 'lucide-react';
+import { UserPlus, Globe, Workflow, ShieldCheck, Trash2, Plus, Store, ListChecks, ChevronUp, ChevronDown, GripVertical, Lightbulb, History, CheckCircle, XCircle, Building2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Reorder } from 'motion/react';
 
 export const Settings: React.FC = () => {
-  const { isAdmin, user: currentUser, profile } = useAuth();
+  const { isAdmin, isSuperAdmin, user: currentUser, profile, currentCompanyId } = useAuth();
   const [settings, setSettings] = useState<any>({
     channels: {}, // { "拼多多": { shops: [], sop: [] } }
     opportunitySources: ['爆款复刻', '竞品监控', '趋势发现', '站内商机'], // Default sources
@@ -29,6 +29,8 @@ export const Settings: React.FC = () => {
     ],
   });
   const [users, setUsers] = useState<any[]>([]);
+  const [globalUsers, setGlobalUsers] = useState<any[]>([]);
+  const [allCompanies, setAllCompanies] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [newChannel, setNewChannel] = useState('');
   const [newShop, setNewShop] = useState('');
@@ -67,9 +69,21 @@ export const Settings: React.FC = () => {
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; title?: string; message?: string; onConfirm: () => void } | null>(null);
 
   useEffect(() => {
-    const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
+    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
+    
+    // First setup unsub to listen to current setting doc
+    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), async (docSnap) => {
+      let data = docSnap.data();
+      
+      // If it doesn't exist but we are in a sub-company, fallback to global
+      if (!docSnap.exists() && currentCompanyId !== 'HQ') {
+        const globalDoc = await getDoc(doc(db, 'settings', 'global'));
+        if (globalDoc.exists()) {
+          data = globalDoc.data();
+        }
+      }
+
+      if (data) {
         const migrated: any = { 
           channels: data.channels || {},
           opportunitySources: data.opportunitySources || ['爆款复刻', '竞品监控', '趋势发现', '站内商机'],
@@ -107,15 +121,36 @@ export const Settings: React.FC = () => {
       }
     });
 
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubUsers = onSnapshot(query(collection(db, 'users'), where('companyId', '==', currentCompanyId)), (snapshot) => {
+      setUsers(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })));
     });
 
     let unsubLogs = () => {};
-    if (isAdmin) {
-      const qLogs = query(collection(db, 'logs'), orderBy('timestamp', 'desc'), limit(500));
+    let unsubGlobalUsers = () => {};
+    let unsubAllCompanies = () => {};
+
+    if (isAdmin || isSuperAdmin) {
+      const qLogs = query(collection(db, 'logs'), where('companyId', '==', currentCompanyId), orderBy('timestamp', 'desc'), limit(500));
       unsubLogs = onSnapshot(qLogs, (snapshot) => {
-        setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        setLogs(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })));
+      }, (error) => {
+        console.error('Logs index might be missing, falling back to client-side filtering', error);
+        // Fallback without orderBy if index is missing
+        const fallbackQuery = query(collection(db, 'logs'), where('companyId', '==', currentCompanyId), limit(1000));
+        unsubLogs = onSnapshot(fallbackQuery, (fallbackSnapshot) => {
+           const logData = fallbackSnapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() }));
+           logData.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+           setLogs(logData.slice(0, 500));
+        });
+      });
+    }
+
+    if (isSuperAdmin) {
+      unsubGlobalUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+        setGlobalUsers(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })));
+      });
+      unsubAllCompanies = onSnapshot(collection(db, 'companies'), (snapshot) => {
+        setAllCompanies(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })));
       });
     }
 
@@ -123,11 +158,14 @@ export const Settings: React.FC = () => {
       unsubSettings();
       unsubUsers();
       unsubLogs();
+      unsubGlobalUsers();
+      unsubAllCompanies();
     };
-  }, []);
+  }, [currentCompanyId, isAdmin, isSuperAdmin]);
 
   const saveSettings = async (newSettings: any) => {
-    await setDoc(doc(db, 'settings', 'global'), newSettings);
+    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
+    await setDoc(doc(db, 'settings', settingDocId), newSettings);
     toast.success('设置已保存');
   };
 
@@ -141,7 +179,7 @@ export const Settings: React.FC = () => {
       }
     };
     await saveSettings(updated);
-    await logOperation('UPDATE', 'SYSTEM', 'channels', `添加渠道: ${newChannel}`, { uid: 'admin', email: 'admin' } as any);
+    await logOperation('UPDATE', 'SYSTEM', 'channels', `添加渠道: ${newChannel}`, profile);
     setNewChannel('');
   };
 
@@ -149,7 +187,7 @@ export const Settings: React.FC = () => {
     const updated = { ...settings };
     delete updated.channels[channel];
     await saveSettings(updated);
-    await logOperation('DELETE', 'SYSTEM', 'channels', `删除渠道: ${channel}`, { uid: 'admin', email: 'admin' } as any);
+    await logOperation('DELETE', 'SYSTEM', 'channels', `删除渠道: ${channel}`, profile);
     if (activeChannel === channel) setActiveChannel(null);
   };
 
@@ -158,7 +196,7 @@ export const Settings: React.FC = () => {
     const updated = { ...settings };
     updated.channels[activeChannel].shops.push({ name: newShop, owners: [] });
     await saveSettings(updated);
-    await logOperation('UPDATE', 'SYSTEM', 'shops', `在 ${activeChannel} 中添加店铺: ${newShop}`, { uid: 'admin', email: 'admin' } as any);
+    await logOperation('UPDATE', 'SYSTEM', 'shops', `在 ${activeChannel} 中添加店铺: ${newShop}`, profile);
     setNewShop('');
   };
 
@@ -167,7 +205,7 @@ export const Settings: React.FC = () => {
     const removedShop = updated.channels[channel].shops[index];
     updated.channels[channel].shops = updated.channels[channel].shops.filter((_: any, i: number) => i !== index);
     await saveSettings(updated);
-    await logOperation('DELETE', 'SYSTEM', 'shops', `从 ${channel} 中删除店铺: ${removedShop.name}`, { uid: 'admin', email: 'admin' } as any);
+    await logOperation('DELETE', 'SYSTEM', 'shops', `从 ${channel} 中删除店铺: ${removedShop.name}`, profile);
   };
 
   const toggleShopOwner = async (channel: string, shopIndex: number, userEmail: string) => {
@@ -186,7 +224,7 @@ export const Settings: React.FC = () => {
     const updated = { ...settings };
     updated.channels[activeChannel].sop.push(newSop);
     await saveSettings(updated);
-    await logOperation('UPDATE', 'SYSTEM', 'sop', `在 ${activeChannel} 中添加SOP节点: ${newSop}`, { uid: 'admin', email: 'admin' } as any);
+    await logOperation('UPDATE', 'SYSTEM', 'sop', `在 ${activeChannel} 中添加SOP节点: ${newSop}`, profile);
     setNewSop('');
   };
 
@@ -195,7 +233,7 @@ export const Settings: React.FC = () => {
     const removedSop = updated.channels[channel].sop[index];
     updated.channels[channel].sop = updated.channels[channel].sop.filter((_: any, i: number) => i !== index);
     await saveSettings(updated);
-    await logOperation('DELETE', 'SYSTEM', 'sop', `从 ${channel} 中删除SOP节点: ${removedSop}`, { uid: 'admin', email: 'admin' } as any);
+    await logOperation('DELETE', 'SYSTEM', 'sop', `从 ${channel} 中删除SOP节点: ${removedSop}`, profile);
   };
 
   const handleReorderSop = async (channel: string, newSop: string[]) => {
@@ -210,7 +248,7 @@ export const Settings: React.FC = () => {
     if (!updated.opportunitySources) updated.opportunitySources = [];
     updated.opportunitySources.push(newSource);
     await saveSettings(updated);
-    await logOperation('UPDATE', 'SYSTEM', 'opportunitySources', `添加商机来源: ${newSource}`, { uid: 'admin', email: 'admin' } as any);
+    await logOperation('UPDATE', 'SYSTEM', 'opportunitySources', `添加商机来源: ${newSource}`, profile);
     setNewSource('');
   };
 
@@ -219,7 +257,7 @@ export const Settings: React.FC = () => {
     const removedSource = updated.opportunitySources[index];
     updated.opportunitySources = updated.opportunitySources.filter((_: any, i: number) => i !== index);
     await saveSettings(updated);
-    await logOperation('DELETE', 'SYSTEM', 'opportunitySources', `删除商机来源: ${removedSource}`, { uid: 'admin', email: 'admin' } as any);
+    await logOperation('DELETE', 'SYSTEM', 'opportunitySources', `删除商机来源: ${removedSource}`, profile);
   };
 
   const handleAddJudgment = async () => {
@@ -228,7 +266,7 @@ export const Settings: React.FC = () => {
     if (!updated.linkJudgments) updated.linkJudgments = [];
     updated.linkJudgments.push(newJudgment);
     await saveSettings(updated);
-    await logOperation('UPDATE', 'SYSTEM', 'linkJudgments', `添加商品状态: ${newJudgment.label}`, { uid: 'admin', email: 'admin' } as any);
+    await logOperation('UPDATE', 'SYSTEM', 'linkJudgments', `添加商品状态: ${newJudgment.label}`, profile);
     setNewJudgment({ label: '', definition: '', color: '#86868B' });
   };
 
@@ -316,6 +354,63 @@ export const Settings: React.FC = () => {
     return true;
   });
 
+  const [newCompanyName, setNewCompanyName] = useState('');
+
+  const handleCreateCompany = async () => {
+    if (!newCompanyName) return;
+    try {
+      const newCompanyId = `company_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      await setDoc(doc(db, 'companies', newCompanyId), {
+        name: newCompanyName,
+        createdAt: new Date().toISOString()
+      });
+      await logOperation('CREATE', 'SYSTEM', 'companies', `创建新公司: ${newCompanyName}`, profile);
+      setNewCompanyName('');
+      toast.success('公司创建成功');
+    } catch (e) {
+      toast.error('创建失败');
+    }
+  };
+
+  const handleDeleteCompany = async (companyId: string) => {
+    if (companyId === 'HQ') {
+      toast.error('总公司不能删除！');
+      return;
+    }
+    // Delete company...
+    try {
+      await deleteDoc(doc(db, 'companies', companyId));
+      await logOperation('DELETE', 'SYSTEM', 'companies', `删除公司: ${companyId}`, profile);
+      toast.success('公司已删除');
+    } catch(e) {
+      toast.error('删除公司失败');
+    }
+  };
+
+  const handleGlobalUserRoleChange = async (userId: string, newRole: string) => {
+    try {
+      if (newRole === 'super_admin' && !auth.currentUser?.email?.includes('@banfuly.com') && auth.currentUser?.email !== 'dengyanqin2015@gmail.com') {
+         toast.error('只有创始团队可以授予 super_admin 权限！');
+         return;
+      }
+      await setDoc(doc(db, 'users', userId), { role: newRole }, { merge: true });
+      toast.success('用户权限已更改');
+      await logOperation('UPDATE', 'SYSTEM', 'users', `全局更改用户权限: ${userId} -> ${newRole}`, profile);
+    } catch(e) {
+      toast.error('权限修改失败');
+    }
+  };
+
+  const handleGlobalUserCompanyChange = async (userId: string, targetCompanyId: string) => {
+    try {
+      await setDoc(doc(db, 'users', userId), { companyId: targetCompanyId }, { merge: true });
+      toast.success('员工已调动');
+      await logOperation('UPDATE', 'SYSTEM', 'users', `全局调动用户: ${userId} -> ${targetCompanyId}`, profile);
+    } catch (e) {
+      toast.error('修改调动失败');
+    }
+  };
+
   if (!isAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] text-center space-y-4">
@@ -340,8 +435,11 @@ export const Settings: React.FC = () => {
       <Tabs defaultValue="basic" className="w-full flex-col flex">
         <TabsList className="bg-white p-1 rounded-xl h-auto mb-6 shadow-sm border border-black/5 self-start flex-wrap">
           <TabsTrigger value="basic" className="rounded-lg text-sm font-bold px-8 py-2.5 data-[state=active]:bg-[#FF6B00] data-[state=active]:text-white transition-all">基础设置</TabsTrigger>
-          <TabsTrigger value="users" className="rounded-lg text-sm font-bold px-8 py-2.5 data-[state=active]:bg-[#FF6B00] data-[state=active]:text-white transition-all">用户与权限</TabsTrigger>
+          <TabsTrigger value="users" className="rounded-lg text-sm font-bold px-8 py-2.5 data-[state=active]:bg-[#FF6B00] data-[state=active]:text-white transition-all">本公司员工</TabsTrigger>
           <TabsTrigger value="logs" className="rounded-lg text-sm font-bold px-8 py-2.5 data-[state=active]:bg-[#FF6B00] data-[state=active]:text-white transition-all">操作日志</TabsTrigger>
+          {isSuperAdmin && (
+            <TabsTrigger value="global" className="rounded-lg text-sm font-bold px-8 py-2.5 data-[state=active]:bg-[#FF6B00] data-[state=active]:text-white transition-all text-[#FF6B00] bg-orange-50 border border-orange-100 ml-2">上帝模式: 全局大盘</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="basic" className="mt-0 outline-none space-y-6">
@@ -602,7 +700,7 @@ export const Settings: React.FC = () => {
             <div className="p-6 border-b border-black/5 bg-[#F5F5F7]/30 flex justify-between items-center">
               <h3 className="text-sm font-bold flex items-center gap-2">
                 <UserPlus size={18} className="text-purple-500" />
-                账号与权限管理
+                本公司：账号与权限管理
               </h3>
             </div>
             <div className="p-6 space-y-6">
@@ -731,7 +829,7 @@ export const Settings: React.FC = () => {
                             <div key={idx} className="flex flex-col gap-2 p-3 bg-[#F5F5F7] rounded-lg border border-black/5">
                               <div className="flex items-center gap-2">
                                 <Select 
-                                  value={perm.shop} 
+                                  value={perm.shop || ''} 
                                   onValueChange={(val) => {
                                     const newPerms = [...user.permissions];
                                     newPerms[idx].shop = val;
@@ -882,6 +980,131 @@ export const Settings: React.FC = () => {
             </div>
           </div>
         </TabsContent>
+
+        {isSuperAdmin && (
+          <TabsContent value="global" className="mt-0 outline-none space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              
+              {/* Companies Management */}
+              <div className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden flex flex-col h-[500px]">
+                <div className="p-6 border-b border-black/5 bg-orange-50/50">
+                  <h3 className="text-sm font-bold flex items-center gap-2 text-[#FF6B00]">
+                    <Building2 size={18} />
+                    公司/租户管理
+                  </h3>
+                </div>
+                <div className="p-4 flex gap-2 border-b border-black/5">
+                  <Input 
+                    placeholder="输入新公司名称..." 
+                    value={newCompanyName} 
+                    onChange={(e) => setNewCompanyName(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button onClick={handleCreateCompany} className="bg-[#1D1D1F] text-white">新建公司</Button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                  {allCompanies.map(comp => (
+                    <div key={comp.id} className="flex justify-between items-center p-4 bg-[#F5F5F7] rounded-xl border border-black/5 group hover:bg-[#EAEAEA] transition-colors">
+                      <div className="flex-1 mr-4">
+                        <Input 
+                          key={`input-${comp.id}-${comp.name}`}
+                          defaultValue={comp.name}
+                          onBlur={async (e) => {
+                             const newName = e.target.value.trim();
+                             if (newName && newName !== comp.name) {
+                                try {
+                                  await setDoc(doc(db, 'companies', comp.id), { name: newName }, { merge: true });
+                                  await logOperation('UPDATE', 'SYSTEM', 'companies', `更名公司: ${comp.name} -> ${newName}`, profile);
+                                  toast.success('公司更名成功');
+                                } catch (err) {
+                                  toast.error('公司更名失败');
+                                }
+                             }
+                          }}
+                          className="font-bold text-sm text-[#1D1D1F] bg-transparent border-transparent hover:border-black/10 focus:border-[#FF6B00] focus:bg-white h-8 px-2 -ml-2 transition-all w-full"
+                        />
+                        <p className="text-[10px] text-[#86868B] font-mono mt-1 px-0">ID: {comp.id}</p>
+                      </div>
+                      {comp.id !== 'HQ' && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-red-500 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => {
+                            setDeleteConfirm({
+                              isOpen: true,
+                              title: '删除分公司',
+                              message: `确定要删除公司【${comp.name}】吗？删除后该公司的所有数据仍然在底层保留，但外层无法访问。建议先将员工掉回总部！`,
+                              onConfirm: () => handleDeleteCompany(comp.id)
+                            });
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Global Users Management */}
+              <div className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden flex flex-col h-[500px]">
+                <div className="p-6 border-b border-black/5 bg-purple-50/50">
+                  <h3 className="text-sm font-bold flex items-center gap-2 text-purple-600">
+                    <UserPlus size={18} />
+                    全局员工大盘监控与调度
+                  </h3>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {globalUsers.map(user => (
+                    <div key={user.id} className="p-4 bg-[#F5F5F7] rounded-xl border border-black/5 flex flex-col gap-3">
+                      <div className="flex justify-between items-start">
+                         <div>
+                            <p className="font-bold text-sm text-[#1D1D1F]">{user.displayName || user.username || user.email}</p>
+                            <p className="text-[10px] text-[#86868B]">{user.email}</p>
+                         </div>
+                         <div className="flex gap-2">
+                            <Select 
+                              value={user.companyId || 'HQ'}
+                              onValueChange={(val) => handleGlobalUserCompanyChange(user.id, val)}
+                            >
+                              <SelectTrigger className="w-[120px] h-7 text-xs bg-white">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {allCompanies.map(c => (
+                                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                         </div>
+                      </div>
+                      <div className="flex items-center gap-2 pt-2 border-t border-black/5">
+                        <span className="text-[10px] uppercase font-bold text-[#86868B]">配置角色:</span>
+                        <Select 
+                          value={user.role || ''}
+                          onValueChange={(val) => handleGlobalUserRoleChange(user.id, val)}
+                        >
+                          <SelectTrigger className="w-[100px] h-6 text-[10px] bg-transparent border-black/10">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pending">待审核</SelectItem>
+                            <SelectItem value="employee">员工</SelectItem>
+                            <SelectItem value="admin">分公司超管</SelectItem>
+                            <SelectItem value="super_admin">系统超管</SelectItem>
+                            <SelectItem value="rejected">封禁区</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+          </TabsContent>
+        )}
       </Tabs>
       
       <Dialog open={!!userToDelete} onOpenChange={(open) => !open && setUserToDelete(null)}>

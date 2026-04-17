@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, onSnapshot, query, where, doc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -19,7 +19,7 @@ const COLORS = ['#FF6B00', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'
 const getColor = (index: number) => COLORS[index % COLORS.length];
 
 export const Dashboard: React.FC = () => {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, isSuperAdmin, currentCompanyId } = useAuth();
   const navigate = useNavigate();
   const [plannings, setPlannings] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -53,53 +53,57 @@ export const Dashboard: React.FC = () => {
   const [previewTitle, setPreviewTitle] = useState('');
 
   useEffect(() => {
-    const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (doc) => {
-      if (doc.exists()) setSettings(doc.data());
+    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
+    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), (docSnap) => {
+      if (docSnap.exists()) {
+        setSettings(docSnap.data());
+      } else if (currentCompanyId !== 'HQ') {
+        getDoc(doc(db, 'settings', 'global')).then(g => {
+          if (g.exists()) setSettings(g.data() as any);
+        });
+      }
     });
 
     const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
 
-    let qPlannings;
-    let qProducts;
-
-    if (isAdmin) {
-      qPlannings = collection(db, 'plannings');
-      qProducts = collection(db, 'products');
-    } else if (allowedShops.length > 0) {
-      qPlannings = query(collection(db, 'plannings'), where('shop', 'in', allowedShops.slice(0, 30)));
-      qProducts = query(collection(db, 'products'), where('shop', 'in', allowedShops.slice(0, 30)));
-    } else {
-      qPlannings = query(collection(db, 'plannings'), where('ownerId', '==', profile?.uid || ''));
-      qProducts = query(collection(db, 'products'), where('ownerId', '==', profile?.uid || ''));
-    }
+    const qPlannings = query(collection(db, 'plannings'), where('companyId', '==', currentCompanyId));
+    const qProducts = query(collection(db, 'products'), where('companyId', '==', currentCompanyId));
 
     const unsubPlannings = onSnapshot(qPlannings, (snapshot) => {
       let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      if (!isAdmin) {
-        docs = docs.filter(doc => {
-          const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-          if (!shopPerm) return false;
-          if (shopPerm.canViewPast) return true;
-          return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
-        });
+      if (!isSuperAdmin) {
+        if (!isAdmin && allowedShops.length === 0) {
+          docs = [];
+        } else if (!isAdmin) {
+          docs = docs.filter(doc => {
+            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+            if (!shopPerm) return false;
+            if (shopPerm.canViewPast) return true;
+            return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
+          });
+        }
       }
       setPlannings(docs);
     });
 
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      if (!isAdmin) {
-        docs = docs.filter(doc => {
-          const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-          if (!shopPerm) return false;
-          if (shopPerm.canViewPast) return true;
-          return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
-        });
+      if (!isSuperAdmin) {
+        if (!isAdmin && allowedShops.length === 0) {
+          docs = [];
+        } else if (!isAdmin) {
+          docs = docs.filter(doc => {
+            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+            if (!shopPerm) return false;
+            if (shopPerm.canViewPast) return true;
+            return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
+          });
+        }
       }
       setProducts(docs);
     });
 
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+    const unsubUsers = onSnapshot(query(collection(db, 'users'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
@@ -109,7 +113,7 @@ export const Dashboard: React.FC = () => {
       unsubProducts();
       unsubUsers();
     };
-  }, [isAdmin, profile]);
+  }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
 
   const getUserDisplayName = (emailOrName: string) => {
     if (!emailOrName) return '未知';

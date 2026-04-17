@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
 import { logOperation } from '../lib/logger';
@@ -26,7 +26,7 @@ const defaultResultLabels: any = {
 };
 
 export const ProductManagement: React.FC = () => {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, isSuperAdmin, currentCompanyId } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [products, setProducts] = useState<any[]>([]);
@@ -125,61 +125,63 @@ export const ProductManagement: React.FC = () => {
   }, [location.state, navigate]);
 
   useEffect(() => {
-    const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (doc) => {
-      if (doc.exists()) setSettings(doc.data());
+    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
+    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), (docSnap) => {
+      if (docSnap.exists()) {
+        setSettings(docSnap.data());
+      } else if (currentCompanyId !== 'HQ') {
+        // Fallback to global if branch settings don't exist yet
+        getDoc(doc(db, 'settings', 'global')).then(g => {
+          if (g.exists()) setSettings(g.data() as any);
+        });
+      }
     });
     
     // Add missing users subscription
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+    const unsubUsers = onSnapshot(query(collection(db, 'users'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
     const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
 
-    let qP;
-    if (isAdmin) {
-      qP = collection(db, 'plannings');
-    } else if (allowedShops.length > 0) {
-      qP = query(collection(db, 'plannings'), where('shop', 'in', allowedShops.slice(0, 30)));
-    } else {
-      qP = query(collection(db, 'plannings'), where('shop', '==', 'NONE_ASSIGNED'));
-    }
+    const qP = query(collection(db, 'plannings'), where('companyId', '==', currentCompanyId));
 
     const unsubP = onSnapshot(qP, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      if (!isAdmin) {
-        docs = docs.filter(doc => {
-          const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-          if (!shopPerm) return false;
-          if (shopPerm.canViewPast) return true;
-          const docDate = new Date(doc.createdAt || 0);
-          const takeoverDate = new Date(shopPerm.takeoverTime);
-          return docDate >= takeoverDate;
-        });
+      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      if (!isSuperAdmin) {
+        if (!isAdmin && allowedShops.length === 0) {
+          docs = [];
+        } else if (!isAdmin) {
+          docs = docs.filter(doc => {
+            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+            if (!shopPerm) return false;
+            if (shopPerm.canViewPast) return true;
+            const docDate = new Date(doc.createdAt || 0);
+            const takeoverDate = new Date(shopPerm.takeoverTime);
+            return docDate >= takeoverDate;
+          });
+        }
       }
       setPlannings(docs);
     });
 
-    let qProd;
-    if (isAdmin) {
-      qProd = collection(db, 'products');
-    } else if (allowedShops.length > 0) {
-      qProd = query(collection(db, 'products'), where('shop', 'in', allowedShops.slice(0, 30)));
-    } else {
-      qProd = query(collection(db, 'products'), where('shop', '==', 'NONE_ASSIGNED'));
-    }
+    const qProd = query(collection(db, 'products'), where('companyId', '==', currentCompanyId));
 
     const unsubProd = onSnapshot(qProd, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      if (!isAdmin) {
-        docs = docs.filter(doc => {
-          const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-          if (!shopPerm) return false;
-          if (shopPerm.canViewPast) return true;
-          const docDate = new Date(doc.uploadTime || doc.createdAt || 0); // User considers uploadTime real time
-          const takeoverDate = new Date(shopPerm.takeoverTime);
-          return docDate >= takeoverDate;
-        });
+      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      if (!isSuperAdmin) {
+        if (!isAdmin && allowedShops.length === 0) {
+          docs = [];
+        } else if (!isAdmin) {
+          docs = docs.filter(doc => {
+            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+            if (!shopPerm) return false;
+            if (shopPerm.canViewPast) return true;
+            const docDate = new Date(doc.uploadTime || doc.createdAt || 0); // User considers uploadTime real time
+            const takeoverDate = new Date(shopPerm.takeoverTime);
+            return docDate >= takeoverDate;
+          });
+        }
       }
       setProducts(docs);
     });
@@ -190,7 +192,7 @@ export const ProductManagement: React.FC = () => {
       unsubProd();
       unsubUsers();
     };
-  }, [isAdmin, profile]);
+  }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
 
   const handleAddProduct = async () => {
     if (!newProduct.productId) return toast.error('请输入商品 ID');
@@ -221,6 +223,7 @@ export const ProductManagement: React.FC = () => {
           uploadTime: new Date().toISOString(),
           ownerId: profile.uid,
           ownerName: profile.displayName || profile.email,
+          companyId: currentCompanyId,
           assignedOwner: newProduct.assignedOwner,
           month: newProduct.month || new Date().toISOString().slice(0, 7),
           steps: initialSteps,
@@ -596,6 +599,7 @@ export const ProductManagement: React.FC = () => {
             assignedOwner: item['负责人 (必填)'] || item['负责人'] || profile.email,
             ownerId: profile.uid,
             ownerName: profile.displayName || profile.email,
+            companyId: currentCompanyId,
             steps: initialSteps,
             notes: item['备注'] || '',
             result: settings.linkJudgments?.[0]?.label || '待设置',
@@ -1011,7 +1015,7 @@ export const ProductManagement: React.FC = () => {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">关联规划</label>
-              <Select value={newProduct.planningId} onValueChange={val => {
+              <Select value={newProduct.planningId || ''} onValueChange={val => {
                 const p = plannings.find(pl => pl.id === val);
                 if (p) {
                   setNewProduct({...newProduct, planningId: val, category: p.category, scene: p.scene, keywords: p.keywords, channel: p.channel, shop: p.shop, month: p.month});
@@ -1038,7 +1042,7 @@ export const ProductManagement: React.FC = () => {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">渠道</label>
-              <Select value={newProduct.channel} onValueChange={val => setNewProduct({...newProduct, channel: val, shop: '', planningId: ''})}>
+              <Select value={newProduct.channel || ''} onValueChange={val => setNewProduct({...newProduct, channel: val, shop: '', planningId: ''})}>
                 <SelectTrigger className="rounded-xl border-black/10 h-10">
                   <SelectValue placeholder="选择渠道" />
                 </SelectTrigger>
@@ -1051,7 +1055,7 @@ export const ProductManagement: React.FC = () => {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">店铺</label>
-              <Select value={newProduct.shop} onValueChange={val => {
+              <Select value={newProduct.shop || ''} onValueChange={val => {
                 const selectedShop = allShops.find(s => s.name === val);
                 const owners = users.filter(u => u.role !== 'rejected' && (u.role === 'admin' || (u.permissions && u.permissions.some((p: any) => p.shop === val))));
                 setNewProduct({
@@ -1073,7 +1077,7 @@ export const ProductManagement: React.FC = () => {
             </div>
             <div className="space-y-2">
               <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">负责人</label>
-              <Select value={newProduct.assignedOwner} onValueChange={val => setNewProduct({...newProduct, assignedOwner: val})} disabled={!newProduct.shop}>
+              <Select value={newProduct.assignedOwner || ''} onValueChange={val => setNewProduct({...newProduct, assignedOwner: val})} disabled={!newProduct.shop}>
                 <SelectTrigger className="rounded-xl border-black/10 h-10">
                   <span className={cn("text-sm", !newProduct.assignedOwner && "text-muted-foreground")}>
                     {newProduct.assignedOwner ? getUserDisplayName(newProduct.assignedOwner) : (newProduct.shop ? "选择负责人" : "请先选择店铺")}
@@ -1185,7 +1189,7 @@ export const ProductManagement: React.FC = () => {
                     </div>
                   </TableCell>
                   <TableCell className="min-w-[100px]">
-                    <Select value={p.result} onValueChange={(val) => updateResult(p.id, val)}>
+                    <Select value={p.result || ''} onValueChange={(val) => updateResult(p.id, val)}>
                       <Tooltip content={judgments.find((j: any) => j.label === p.result)?.definition || '暂无定义'}>
                         <SelectTrigger 
                           className="w-[80px] h-8 rounded-lg border-none shadow-none text-xs font-bold"
@@ -1289,7 +1293,7 @@ export const ProductManagement: React.FC = () => {
                   </div>
                   <p className="text-xs text-[#86868B] font-bold mt-1">{p.category} {p.scene ? `· ${p.scene}` : ''}</p>
                 </div>
-                <Select value={p.result} onValueChange={(val) => updateResult(p.id, val)}>
+                <Select value={p.result || ''} onValueChange={(val) => updateResult(p.id, val)}>
                   <Tooltip content={judgments.find((j: any) => j.label === p.result)?.definition || '暂无定义'}>
                     <SelectTrigger 
                       className="w-[80px] h-7 rounded-lg border-none shadow-none text-xs font-bold"

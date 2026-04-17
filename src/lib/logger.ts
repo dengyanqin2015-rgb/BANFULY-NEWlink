@@ -21,6 +21,7 @@ export const logOperation = async (
       details,
       operatorId: profile.uid,
       operatorName: profile.displayName || profile.username || 'Unknown',
+      companyId: profile.companyId || 'HQ',
       timestamp: new Date().toISOString()
     });
   } catch (error) {

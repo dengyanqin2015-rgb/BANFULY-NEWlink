@@ -67,7 +67,8 @@ export const LoginPage: React.FC = () => {
                 email: email,
                 username: trimmedUsername,
                 displayName: '超级管理员',
-                role: 'admin',
+                role: 'super_admin',
+                companyId: 'HQ',
                 createdAt: new Date().toISOString(),
                 permissions: []
               };
@@ -91,13 +92,16 @@ export const LoginPage: React.FC = () => {
           displayName: realName.trim()
         });
         
+        const isSuper = email === 'dengyanqin2015@gmail.com' || trimmedUsername === 'admin' || email === 'admin@banfuly.com';
+        
         // Create user profile in Firestore
         const newProfile = {
           uid: userCredential.user.uid,
           email: email,
           username: trimmedUsername,
           displayName: realName.trim(),
-          role: (email === 'dengyanqin2015@gmail.com' || trimmedUsername === 'admin') ? 'admin' : 'pending',
+          role: isSuper ? 'super_admin' : 'pending',
+          companyId: isSuper ? 'HQ' : 'UNASSIGNED',
           createdAt: new Date().toISOString(),
           permissions: []
         };

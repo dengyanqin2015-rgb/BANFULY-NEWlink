@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, onSnapshot, query, where, doc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
 import { Badge } from '@/components/ui/badge';
@@ -12,7 +12,7 @@ import { LayoutGrid, List, PieChart, AlertTriangle, Users, Store, Globe, Target,
 import { cn } from '@/lib/utils';
 
 export const BentoProgress: React.FC = () => {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, isSuperAdmin, currentCompanyId } = useAuth();
   const navigate = useNavigate();
   const [plannings, setPlannings] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -30,18 +30,53 @@ export const BentoProgress: React.FC = () => {
   const [filterCategory, setFilterCategory] = useState<string>('all');
 
   useEffect(() => {
-    const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (doc) => {
-      if (doc.exists()) setSettings(doc.data());
+    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
+    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), (docSnap) => {
+      if (docSnap.exists()) {
+        setSettings(docSnap.data());
+      } else if (currentCompanyId !== 'HQ') {
+        getDoc(doc(db, 'settings', 'global')).then(g => {
+          if (g.exists()) setSettings(g.data() as any);
+        });
+      }
     });
 
-    const qP = isAdmin ? collection(db, 'plannings') : query(collection(db, 'plannings'), where('ownerId', '==', profile?.uid));
+    const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
+
+    const qP = query(collection(db, 'plannings'), where('companyId', '==', currentCompanyId));
     const unsubP = onSnapshot(qP, (snapshot) => {
-      setPlannings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      if (!isSuperAdmin) {
+        if (!isAdmin && allowedShops.length === 0) {
+          docs = [];
+        } else if (!isAdmin) {
+          docs = docs.filter(doc => {
+            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+            if (!shopPerm) return false;
+            if (shopPerm.canViewPast) return true;
+            return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
+          });
+        }
+      }
+      setPlannings(docs);
     });
 
-    const qProd = isAdmin ? collection(db, 'products') : query(collection(db, 'products'), where('ownerId', '==', profile?.uid));
+    const qProd = query(collection(db, 'products'), where('companyId', '==', currentCompanyId));
     const unsubProd = onSnapshot(qProd, (snapshot) => {
-      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
+      if (!isSuperAdmin) {
+        if (!isAdmin && allowedShops.length === 0) {
+          docs = [];
+        } else if (!isAdmin) {
+          docs = docs.filter(doc => {
+            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+            if (!shopPerm) return false;
+            if (shopPerm.canViewPast) return true;
+            return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
+          });
+        }
+      }
+      setProducts(docs);
     });
 
     return () => {
@@ -49,7 +84,7 @@ export const BentoProgress: React.FC = () => {
       unsubP();
       unsubProd();
     };
-  }, [isAdmin, profile]);
+  }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
 
   const uniqueYears = Array.from(new Set(plannings.map(p => p.month?.split('-')[0]).filter(Boolean)));
   const uniqueMonths = Array.from(new Set(plannings.map(p => p.month?.split('-')[1]).filter(Boolean)));

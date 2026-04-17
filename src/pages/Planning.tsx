@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
 import { logOperation } from '../lib/logger';
@@ -15,7 +15,7 @@ import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 
 export const Planning: React.FC = () => {
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, isSuperAdmin, currentCompanyId } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [plannings, setPlannings] = useState<any[]>([]);
@@ -82,41 +82,50 @@ export const Planning: React.FC = () => {
   }, [location.state, navigate]);
 
   useEffect(() => {
-    const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (doc) => {
-      if (doc.exists()) setSettings(doc.data());
+    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
+    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), (docSnap) => {
+      if (docSnap.exists()) {
+        setSettings(docSnap.data());
+      } else if (currentCompanyId !== 'HQ') {
+        // Fallback to global if branch settings don't exist yet
+        getDoc(doc(db, 'settings', 'global')).then(g => {
+          if (g.exists()) setSettings(g.data() as any);
+        });
+      }
     });
 
     const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
-    let q;
-    if (isAdmin) {
-      q = collection(db, 'plannings');
-    } else if (allowedShops.length > 0) {
-      q = query(collection(db, 'plannings'), where('shop', 'in', allowedShops.slice(0, 30)));
-    } else {
-      q = query(collection(db, 'plannings'), where('shop', '==', 'NONE_ASSIGNED'));
-    }
+    
+    // Core query by tenant
+    const q = query(collection(db, 'plannings'), where('companyId', '==', currentCompanyId));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      if (!isAdmin) {
-        docs = docs.filter(doc => {
-          const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-          if (!shopPerm) return false;
-          if (shopPerm.canViewPast) return true;
-          const docDate = new Date(doc.createdAt || 0);
-          const takeoverDate = new Date(shopPerm.takeoverTime);
-          return docDate >= takeoverDate;
-        });
+      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      
+      // Client-side shop filtering for non-admin
+      if (!isSuperAdmin) {
+        if (!isAdmin && allowedShops.length === 0) {
+           docs = [];
+        } else if (!isAdmin) {
+          docs = docs.filter(doc => {
+            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
+            if (!shopPerm) return false;
+            if (shopPerm.canViewPast) return true;
+            const docDate = new Date(doc.createdAt || 0);
+            const takeoverDate = new Date(shopPerm.takeoverTime);
+            return docDate >= takeoverDate;
+          });
+        }
       }
       setPlannings(docs);
     });
     
     // Add missing users subscription
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+    const unsubUsers = onSnapshot(query(collection(db, 'users'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+    const unsubProducts = onSnapshot(query(collection(db, 'products'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
@@ -126,7 +135,7 @@ export const Planning: React.FC = () => {
       unsubUsers();
       unsubProducts();
     };
-  }, [isAdmin, profile]);
+  }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
 
   // Auto-fix discrepancies in uploadedCount
   useEffect(() => {
@@ -149,6 +158,7 @@ export const Planning: React.FC = () => {
         uploadedCount: 0,
         ownerId: profile.uid,
         ownerName: profile.displayName || profile.email,
+        companyId: currentCompanyId,
         createdAt: new Date().toISOString(),
       });
       await logOperation('CREATE', 'PLANNING', docRef.id, `新增规划: ${formData.category} - ${formData.shop}`, profile);

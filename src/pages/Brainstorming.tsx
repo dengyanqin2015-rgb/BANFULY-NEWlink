@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, addDoc, doc, updateDoc, deleteDoc, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/components/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -242,7 +242,7 @@ const nodeTypes = { mindmap: MindMapNode };
 
 export const Brainstorming: React.FC = () => {
   const { id } = useParams();
-  const { profile, isAdmin } = useAuth();
+  const { profile, isAdmin, isSuperAdmin, currentCompanyId } = useAuth();
   const navigate = useNavigate();
   const [maps, setMaps] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
@@ -305,17 +305,17 @@ export const Brainstorming: React.FC = () => {
   }, [users]);
 
   useEffect(() => {
-    const unsubMaps = onSnapshot(collection(db, 'mindmaps'), (snapshot) => {
+    const unsubMaps = onSnapshot(query(collection(db, 'mindmaps'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       const allMaps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
       setMaps(allMaps.filter(m => {
-        if (isAdmin) return true;
+        if (isAdmin || isSuperAdmin) return true;
         if (m.ownerId === profile?.uid) return true;
         if (m.permissions && m.permissions[profile?.uid || '']) return true;
         return false;
       }));
     });
 
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+    const unsubUsers = onSnapshot(query(collection(db, 'users'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
@@ -323,7 +323,7 @@ export const Brainstorming: React.FC = () => {
       unsubMaps();
       unsubUsers();
     };
-  }, [profile?.uid, isAdmin]);
+  }, [profile?.uid, isAdmin, isSuperAdmin, currentCompanyId]);
 
   useEffect(() => {
     if (id) {
@@ -356,6 +356,7 @@ export const Brainstorming: React.FC = () => {
         title: '新建头脑风暴',
         ownerId: profile?.uid,
         ownerName: profile?.displayName || profile?.email,
+        companyId: currentCompanyId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         data: JSON.stringify({ nodes: initialNodes, edges: initialEdges }),
@@ -394,7 +395,7 @@ export const Brainstorming: React.FC = () => {
     }
   };
 
-  const canEdit = !currentMap || currentMap.ownerId === profile?.uid || isAdmin || 
+  const canEdit = !currentMap || currentMap.ownerId === profile?.uid || isAdmin || isSuperAdmin || 
                   (currentMap.permissions && ['editor', 'manager'].includes(currentMap.permissions[profile?.uid || '']));
 
   const handleExit = async () => {
@@ -405,7 +406,7 @@ export const Brainstorming: React.FC = () => {
     navigate('/brainstorming');
   };
 
-  const canManage = !currentMap || currentMap.ownerId === profile?.uid || isAdmin || 
+  const canManage = !currentMap || currentMap.ownerId === profile?.uid || isAdmin || isSuperAdmin || 
                   (currentMap.permissions && currentMap.permissions[profile?.uid || ''] === 'manager');
 
   const handleEditorKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -901,7 +902,7 @@ const PermissionsDialogContent: React.FC<{ map: any, users: any[], onClose: () =
                   {getUserDisplayName(userId)}
                 </span>
                 <div className="flex items-center gap-2">
-                  <Select value={role} onValueChange={(v: string) => handleRoleChange(userId, v)}>
+                  <Select value={String(role) || ''} onValueChange={(v: string) => handleRoleChange(userId, v)}>
                     <SelectTrigger className="w-24 h-8 rounded-lg border-none bg-white text-xs">
                       <SelectValue>{roleMap[role as string] || role}</SelectValue>
                     </SelectTrigger>
