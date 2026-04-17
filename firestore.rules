@@ -111,7 +111,7 @@ service cloud.firestore {
     }
 
     match /mindmaps/{mindmapId} {
-      allow read: if isAuthenticated() && (resource.data.ownerId == request.auth.uid || isAdmin() || (request.auth.uid in resource.data.permissions));
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidMindmap(request.resource.data) && (request.resource.data.ownerId == request.auth.uid || isAdmin());
       allow update: if isAuthenticated() && isValidMindmap(request.resource.data) && (
         resource.data.ownerId == request.auth.uid || 
