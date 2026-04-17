@@ -66,6 +66,7 @@ export const ProductManagement: React.FC = () => {
 
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; title?: string; message?: string; onConfirm: () => void } | null>(null);
 
   const calculateDays = (dateStr: string) => {
     if (!dateStr) return 0;
@@ -984,7 +985,12 @@ export const ProductManagement: React.FC = () => {
                 <Copy size={14} /> 复制 ID
               </Button>
             )}
-            <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs text-red-400 hover:bg-red-400/10" onClick={handleBatchDelete}>
+            <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs text-red-400 hover:bg-red-400/10" onClick={() => setDeleteConfirm({
+              isOpen: true,
+              title: '确认删除',
+              message: `确定要批量删除这 ${selectedIds.length} 个链接吗？此操作无法撤销。`,
+              onConfirm: handleBatchDelete
+            })}>
               <Trash2 size={14} /> 批量删除
             </Button>
           </div>
@@ -1241,7 +1247,12 @@ export const ProductManagement: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-red-500 hover:bg-red-50" onClick={() => handleDelete(p.id)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-red-500 hover:bg-red-50" onClick={() => setDeleteConfirm({
+                        isOpen: true,
+                        title: '确认删除',
+                        message: '确定要删除这条商品链接吗？此操作无法撤销。',
+                        onConfirm: () => handleDelete(p.id)
+                      })}>
                         <Trash2 size={14} />
                       </Button>
                     </div>
@@ -1316,7 +1327,12 @@ export const ProductManagement: React.FC = () => {
                 ))}
               </div>
               <div className="mt-4 flex justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                <Button variant="ghost" size="sm" className="text-red-500 text-xs font-bold gap-1 h-8" onClick={() => handleDelete(p.id)}>
+                <Button variant="ghost" size="sm" className="text-red-500 text-xs font-bold gap-1 h-8" onClick={() => setDeleteConfirm({
+                  isOpen: true,
+                  title: '确认删除',
+                  message: '确定要删除这条商品链接吗？此操作无法撤销。',
+                  onConfirm: () => handleDelete(p.id)
+                })}>
                   <Trash2 size={12} /> 删除链接
                 </Button>
               </div>
@@ -1359,6 +1375,30 @@ export const ProductManagement: React.FC = () => {
                 className="bg-[#1D1D1F] hover:bg-black text-white rounded-xl h-10 px-6 font-bold shadow-md"
               >
                 确认真实时间
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRM Modal */}
+      {deleteConfirm && deleteConfirm.isOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold text-red-500 mb-4">{deleteConfirm.title || '确认删除'}</h3>
+            <p className="text-[#1D1D1F] mb-6">{deleteConfirm.message || '确定要删除吗？此操作无法撤销。'}</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDeleteConfirm(null)} className="rounded-xl font-bold">
+                取消
+              </Button>
+              <Button 
+                onClick={() => {
+                  deleteConfirm.onConfirm();
+                  setDeleteConfirm(null);
+                }} 
+                className="bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold shadow-md"
+              >
+                确认删除
               </Button>
             </div>
           </div>

@@ -63,6 +63,8 @@ export const Settings: React.FC = () => {
   // Log filters
   const [logDateFilter, setLogDateFilter] = useState('7'); // days
   const [logUserFilter, setLogUserFilter] = useState('all');
+  
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; title?: string; message?: string; onConfirm: () => void } | null>(null);
 
   useEffect(() => {
     const unsubSettings = onSnapshot(doc(db, 'settings', 'global'), (doc) => {
@@ -361,7 +363,15 @@ export const Settings: React.FC = () => {
                   >
                     <span className="text-sm font-bold">{channel}</span>
                     <button 
-                      onClick={(e) => { e.stopPropagation(); handleRemoveChannel(channel); }}
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        setDeleteConfirm({
+                          isOpen: true,
+                          title: '删除渠道',
+                          message: `确定要删除渠道【${channel}】吗？此操作无法撤销。`,
+                          onConfirm: () => handleRemoveChannel(channel)
+                        });
+                      }}
                       className={`p-1 rounded-lg ${activeChannel === channel ? 'hover:bg-white/20' : 'hover:bg-red-100 text-red-500'}`}
                     >
                       <Trash2 size={14} />
@@ -394,7 +404,15 @@ export const Settings: React.FC = () => {
                         <div key={i} className="p-4 rounded-xl bg-[#F5F5F7] border border-black/5 group">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-bold text-[#1D1D1F]">{shop.name}</span>
-                            <button onClick={() => handleRemoveShop(activeChannel, i)} className="p-1 text-[#86868B] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirm({
+                                isOpen: true,
+                                title: '删除店铺',
+                                message: `确定要删除店铺【${shop.name}】吗？此操作无法撤销。`,
+                                onConfirm: () => handleRemoveShop(activeChannel, i)
+                              });
+                            }} className="p-1 text-[#86868B] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
                               <Trash2 size={14} />
                             </button>
                           </div>
@@ -431,7 +449,15 @@ export const Settings: React.FC = () => {
                         >
                           <GripVertical size={16} className="text-[#86868B] opacity-50 group-hover:opacity-100" />
                           <span className="flex-1">{step}</span>
-                          <button onClick={() => handleRemoveSop(activeChannel, i)} className="p-1.5 text-[#86868B] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirm({
+                              isOpen: true,
+                              title: '删除 SOP',
+                              message: `确定要删除 SOP 节点【${step}】吗？此操作无法撤销。`,
+                              onConfirm: () => handleRemoveSop(activeChannel, i)
+                            });
+                          }} className="p-1.5 text-[#86868B] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Trash2 size={16} />
                           </button>
                         </Reorder.Item>
@@ -468,7 +494,15 @@ export const Settings: React.FC = () => {
                   {(settings.opportunitySources || []).map((source: string, i: number) => (
                     <div key={i} className="pl-3 pr-1 py-1.5 rounded-xl bg-[#F5F5F7] text-[#1D1D1F] text-xs font-bold flex items-center gap-1 border border-black/5 group">
                       {source}
-                      <button onClick={() => handleRemoveSource(i)} className="p-1 text-[#86868B] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteConfirm({
+                          isOpen: true,
+                          title: '删除商机来源',
+                          message: `确定要删除商机来源【${source}】吗？此操作无法撤销。`,
+                          onConfirm: () => handleRemoveSource(i)
+                        });
+                      }} className="p-1 text-[#86868B] hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Trash2 size={12} />
                       </button>
                     </div>
@@ -868,6 +902,30 @@ export const Settings: React.FC = () => {
         </DialogContent>
       </Dialog>
       
+      {/* DELETE CONFIRM Modal */}
+      {deleteConfirm && deleteConfirm.isOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold text-red-500 mb-4">{deleteConfirm.title || '确认删除'}</h3>
+            <p className="text-[#1D1D1F] mb-6">{deleteConfirm.message || '确定要删除吗？此操作无法撤销。'}</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDeleteConfirm(null)} className="rounded-xl font-bold">
+                取消
+              </Button>
+              <Button 
+                onClick={() => {
+                  deleteConfirm.onConfirm();
+                  setDeleteConfirm(null);
+                }} 
+                className="bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold shadow-md"
+              >
+                确认删除
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
