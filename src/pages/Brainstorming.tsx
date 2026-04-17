@@ -379,7 +379,7 @@ export const Brainstorming: React.FC = () => {
     setEdges((eds) => addEdge(params, eds));
   }, []);
 
-  const handleSave = async () => {
+  const handleSave = async (silent = false) => {
     if (id === 'new') return;
     try {
       const dataStr = JSON.stringify({ nodes, edges, mapConfig: { edgeStyle, spawnDirection } });
@@ -388,14 +388,22 @@ export const Brainstorming: React.FC = () => {
         data: dataStr,
         updatedAt: new Date().toISOString()
       });
-      toast.success('保存成功');
+      if (!silent) toast.success('保存成功');
     } catch(e) {
-      toast.error('保存失败');
+      if (!silent) toast.error('保存失败');
     }
   };
 
   const canEdit = !currentMap || currentMap.ownerId === profile?.uid || isAdmin || 
                   (currentMap.permissions && ['editor', 'manager'].includes(currentMap.permissions[profile?.uid || '']));
+
+  const handleExit = async () => {
+    if (canEdit && id && id !== 'new') {
+      await handleSave(true);
+      toast.success('已为您自动保存修改', { duration: 2000 });
+    }
+    navigate('/brainstorming');
+  };
 
   const canManage = !currentMap || currentMap.ownerId === profile?.uid || isAdmin || 
                   (currentMap.permissions && currentMap.permissions[profile?.uid || ''] === 'manager');
@@ -514,7 +522,7 @@ export const Brainstorming: React.FC = () => {
       <div className="h-[calc(100vh-100px)] flex flex-col bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden">
         <div className="h-16 border-b border-black/5 px-6 flex items-center justify-between shrink-0 bg-[#F5F5F7]/30">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate('/brainstorming')}>
+            <Button variant="ghost" size="icon" onClick={handleExit}>
               <ArrowLeft size={18} />
             </Button>
             <input 
