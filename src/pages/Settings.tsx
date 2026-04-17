@@ -193,8 +193,9 @@ export const Settings: React.FC = () => {
   };
 
   const handleAddShop = async () => {
-    if (!activeChannel || !newShop) return;
+    if (!activeChannel || !newShop || !settings.channels?.[activeChannel]) return;
     const updated = { ...settings };
+    if (!updated.channels[activeChannel].shops) updated.channels[activeChannel].shops = [];
     updated.channels[activeChannel].shops.push({ name: newShop, owners: [] });
     await saveSettings(updated);
     await logOperation('UPDATE', 'SYSTEM', 'shops', `在 ${activeChannel} 中添加店铺: ${newShop}`, profile);
@@ -202,16 +203,21 @@ export const Settings: React.FC = () => {
   };
 
   const handleRemoveShop = async (channel: string, index: number) => {
+    if (!settings.channels?.[channel]?.shops) return;
     const updated = { ...settings };
     const removedShop = updated.channels[channel].shops[index];
+    if (!removedShop) return;
     updated.channels[channel].shops = updated.channels[channel].shops.filter((_: any, i: number) => i !== index);
     await saveSettings(updated);
     await logOperation('DELETE', 'SYSTEM', 'shops', `从 ${channel} 中删除店铺: ${removedShop.name}`, profile);
   };
 
   const toggleShopOwner = async (channel: string, shopIndex: number, userEmail: string) => {
+    if (!settings.channels?.[channel]?.shops) return;
     const updated = { ...settings };
     const shop = updated.channels[channel].shops[shopIndex];
+    if (!shop) return;
+    if (!shop.owners) shop.owners = [];
     if (shop.owners.includes(userEmail)) {
       shop.owners = shop.owners.filter((e: string) => e !== userEmail);
     } else {
@@ -221,8 +227,9 @@ export const Settings: React.FC = () => {
   };
 
   const handleAddSop = async () => {
-    if (!activeChannel || !newSop) return;
+    if (!activeChannel || !newSop || !settings.channels?.[activeChannel]) return;
     const updated = { ...settings };
+    if (!updated.channels[activeChannel].sop) updated.channels[activeChannel].sop = [];
     updated.channels[activeChannel].sop.push(newSop);
     await saveSettings(updated);
     await logOperation('UPDATE', 'SYSTEM', 'sop', `在 ${activeChannel} 中添加SOP节点: ${newSop}`, profile);
@@ -230,14 +237,17 @@ export const Settings: React.FC = () => {
   };
 
   const handleRemoveSop = async (channel: string, index: number) => {
+    if (!settings.channels?.[channel]?.sop) return;
     const updated = { ...settings };
     const removedSop = updated.channels[channel].sop[index];
+    if (!removedSop) return;
     updated.channels[channel].sop = updated.channels[channel].sop.filter((_: any, i: number) => i !== index);
     await saveSettings(updated);
     await logOperation('DELETE', 'SYSTEM', 'sop', `从 ${channel} 中删除SOP节点: ${removedSop}`, profile);
   };
 
   const handleReorderSop = async (channel: string, newSop: string[]) => {
+    if (!settings.channels?.[channel]) return;
     const updated = { ...settings };
     updated.channels[channel].sop = newSop;
     await saveSettings(updated);
@@ -305,7 +315,9 @@ export const Settings: React.FC = () => {
   };
 
   const handleBatchAddAllShops = (userId: string, currentPerms: any[] = []) => {
-    const allShops = Object.entries(settings.channels || {}).flatMap(([c, data]: [string, any]) => data.shops.map((s: any) => s.name));
+    const allShops = Object.entries(settings.channels || {}).flatMap(([c, data]: [string, any]) => 
+      (data?.shops || []).map((s: any) => s.name)
+    );
     const currentShopMap = new Set(currentPerms.map(p => p.shop));
     const newPerms = allShops.filter(s => !currentShopMap.has(s)).map(s => ({ shop: s, takeoverTime: new Date().toISOString().split('T')[0], canViewPast: false }));
 
@@ -499,7 +511,7 @@ export const Settings: React.FC = () => {
                       [{activeChannel}] 店铺设置
                     </h3>
                     <div className="space-y-3 mb-4">
-                      {settings.channels[activeChannel].shops.map((shop: any, i: number) => (
+                      {settings.channels[activeChannel]?.shops?.map((shop: any, i: number) => (
                         <div key={i} className="p-4 rounded-xl bg-[#F5F5F7] border border-black/5 group">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-bold text-[#1D1D1F]">{shop.name}</span>
@@ -536,11 +548,11 @@ export const Settings: React.FC = () => {
                     </h3>
                     <Reorder.Group 
                       axis="y" 
-                      values={settings.channels[activeChannel].sop} 
+                      values={settings.channels[activeChannel]?.sop || []} 
                       onReorder={(newOrder) => handleReorderSop(activeChannel, newOrder)}
                       className="space-y-2 mb-4"
                     >
-                      {settings.channels[activeChannel].sop.map((step: string, i: number) => (
+                      {(settings.channels[activeChannel]?.sop || []).map((step: string, i: number) => (
                         <Reorder.Item 
                           key={step} 
                           value={step}
@@ -842,7 +854,7 @@ export const Settings: React.FC = () => {
                                   </SelectTrigger>
                                   <SelectContent>
                                     {Object.entries(settings.channels || {}).flatMap(([c, data]: [string, any]) => 
-                                      data.shops.map((s: any) => (
+                                      (data?.shops || []).map((s: any) => (
                                         <SelectItem key={`${c}-${s.name}`} value={s.name}>{c} - {s.name}</SelectItem>
                                       ))
                                     )}
