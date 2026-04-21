@@ -18,6 +18,7 @@ import ExcelJS from 'exceljs';
 import { useSecureCollection } from '../hooks/useSecureCollection';
 import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
 import { FieldEditModal } from '@/components/common/FieldEditModal';
+import { cn } from '@/lib/utils';
 import { AddPlanningModal } from '@/components/Planning/AddPlanningModal';
 
 export const Planning: React.FC = () => {
@@ -46,6 +47,8 @@ export const Planning: React.FC = () => {
   const [filterOwner, setFilterOwner] = useState('all');
   const [filterParentCategory, setFilterParentCategory] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
@@ -397,14 +400,27 @@ export const Planning: React.FC = () => {
     return dateA - dateB;
   });
 
+  const paginatedPlannings = filteredPlannings.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   return (
     <div className="space-y-6">
-      <header className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#1D1D1F]">上新方向规划</h1>
-          <p className="text-xs text-[#86868B] mt-1">Strategic Planning · 设定目标与分母</p>
+      <header className="flex flex-col gap-4">
+        <div className="flex justify-between items-center w-full">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-[#1D1D1F]">上新方向规划</h1>
+            <p className="text-xs text-[#86868B] mt-1">Strategic Planning · 设定目标与分母</p>
+          </div>
+          <div className="flex items-center gap-4 shrink-0">
+             {/* Action buttons could go here */}
+          </div>
         </div>
-        <div className="flex items-center gap-4">
+        
+        <div className="flex items-center gap-4 w-full">
+          <div className="flex bg-[#E3E3E8] p-1 rounded-xl shrink-0">
+             <div className="relative flex items-center">
+                {/* Search could be added here if needed, keeping filters for now */}
+             </div>
+          </div>
           <div className="flex bg-[#E3E3E8] p-1 rounded-xl gap-1 overflow-x-auto custom-scrollbar flex-nowrap shrink-0 max-w-full">
             <Select value={filterYear} onValueChange={setFilterYear}>
               <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
@@ -424,6 +440,7 @@ export const Planning: React.FC = () => {
                 {uniqueMonths.map(m => <SelectItem key={m} value={m}>{m}月</SelectItem>)}
               </SelectContent>
             </Select>
+
 
             <Select value={filterChannel} onValueChange={setFilterChannel}>
               <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
@@ -537,7 +554,7 @@ export const Planning: React.FC = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredPlannings.map((p) => (
+              paginatedPlannings.map((p) => (
                 <TableRow 
                   key={p.id} 
                   id={`planning-row-${p.id}`}
@@ -611,6 +628,105 @@ export const Planning: React.FC = () => {
             )}
           </TableBody>
         </Table>
+      </div>
+
+      {/* Pagination & Status Footer */}
+      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-[24px] border border-black/5 shadow-sm gap-4">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 text-xs font-bold text-[#86868B]">
+            <span>每页展示:</span>
+            <Select value={String(pageSize)} onValueChange={(val) => { setPageSize(Number(val)); setCurrentPage(1); }}>
+              <SelectTrigger className="h-8 w-20 rounded-lg border-black/5 bg-[#F5F5F7] shadow-none focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                {[20, 50, 100, 200].map(size => (
+                  <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="h-4 w-px bg-black/5" />
+          <div className="text-xs font-bold text-[#86868B]">
+            共 <span className="text-[#1D1D1F]">{filteredPlannings.length}</span> 个规划
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="rounded-xl border-black/5 text-xs font-bold disabled:opacity-30 h-9 px-4"
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage(p => p - 1)}
+          >
+            上一页
+          </Button>
+          <div className="flex items-center gap-1.5 mx-2">
+            {(() => {
+              const totalPages = Math.ceil(filteredPlannings.length / pageSize);
+              const pages = [];
+              pages.push(
+                <Button 
+                  key={1}
+                  variant={currentPage === 1 ? "default" : "ghost"}
+                  size="sm"
+                  className={cn("w-9 h-9 rounded-xl text-xs font-bold transition-all", currentPage === 1 ? "bg-[#1D1D1F] text-white shadow-md" : "hover:bg-[#F5F5F7] text-[#86868B]")}
+                  onClick={() => setCurrentPage(1)}
+                >1</Button>
+              );
+              if (currentPage > 3) pages.push(<span key="start-ellipsis" className="text-[#86868B] px-1">...</span>);
+              for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+                pages.push(
+                  <Button 
+                    key={i}
+                    variant={currentPage === i ? "default" : "ghost"}
+                    size="sm"
+                    className={cn("w-9 h-9 rounded-xl text-xs font-bold transition-all", currentPage === i ? "bg-[#1D1D1F] text-white shadow-md" : "hover:bg-[#F5F5F7] text-[#86868B]")}
+                    onClick={() => setCurrentPage(i)}
+                  >{i}</Button>
+                );
+              }
+              if (currentPage < totalPages - 2) pages.push(<span key="end-ellipsis" className="text-[#86868B] px-1">...</span>);
+              if (totalPages > 1) {
+                pages.push(
+                  <Button 
+                    key={totalPages}
+                    variant={currentPage === totalPages ? "default" : "ghost"}
+                    size="sm"
+                    className={cn("w-9 h-9 rounded-xl text-xs font-bold transition-all", currentPage === totalPages ? "bg-[#1D1D1F] text-white shadow-md" : "hover:bg-[#F5F5F7] text-[#86868B]")}
+                    onClick={() => setCurrentPage(totalPages)}
+                  >{totalPages}</Button>
+                );
+              }
+              return pages;
+            })()}
+            <div className="flex items-center gap-2 ml-2">
+              <span className="text-xs text-[#86868B]">跳转</span>
+              <input 
+                type="number" 
+                className="w-12 h-9 rounded-lg border border-black/10 text-center text-xs focus:ring-2 focus:ring-[#FF6B00] focus:border-transparent" 
+                min={1} 
+                max={Math.ceil(filteredPlannings.length / pageSize)}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (val >= 1 && val <= Math.ceil(filteredPlannings.length / pageSize)) {
+                    setCurrentPage(val);
+                  }
+                }}
+              />
+            </div>
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="rounded-xl border-black/5 text-xs font-bold disabled:opacity-30 h-9 px-4"
+            disabled={currentPage >= Math.ceil(filteredPlannings.length / pageSize)}
+            onClick={() => setCurrentPage(p => p + 1)}
+          >
+            下一页
+          </Button>
+        </div>
       </div>
 
       <DeleteConfirmModal
