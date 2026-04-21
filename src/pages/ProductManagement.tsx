@@ -51,6 +51,7 @@ export const ProductManagement: React.FC = () => {
   const [filterChannel, setFilterChannel] = useState('all');
   const [filterShop, setFilterShop] = useState('all');
   const [filterOwner, setFilterOwner] = useState('all');
+  const [filterParentCategory, setFilterParentCategory] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterSource, setFilterSource] = useState('all');
   const [filterSopStep, setFilterSopStep] = useState('all');
@@ -649,6 +650,7 @@ export const ProductManagement: React.FC = () => {
       const relatedPlanning = p.planningId ? plannings.find(plan => plan.id === p.planningId) : null;
       return {
         ...p,
+        parentCategory: relatedPlanning?.parentCategory || p.parentCategory || '',
         source: relatedPlanning?.source || p.source || '',
         category: relatedPlanning?.category || p.category || '',
         scene: relatedPlanning?.scene || p.scene || '',
@@ -657,11 +659,12 @@ export const ProductManagement: React.FC = () => {
     });
   }, [products, plannings]);
 
-  const uniqueYears = Array.from(new Set(enrichedProducts.map(p => p.month?.split('-')[0]).filter(Boolean))).sort().reverse() as string[];
-  const uniqueMonths = Array.from(new Set(enrichedProducts.map(p => p.month?.split('-')[1]).filter(Boolean))).sort().reverse() as string[];
+  const uniqueYears = Array.from(new Set(enrichedProducts.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean))).sort().reverse() as string[];
+  const uniqueMonths = Array.from(new Set(enrichedProducts.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean))).sort().reverse() as string[];
   const uniqueDays = Array.from(new Set(enrichedProducts.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean))).sort().reverse() as string[];
   const uniqueChannels = Array.from(new Set(enrichedProducts.map(p => p.channel).filter(Boolean))) as string[];
   const uniqueShops = Array.from(new Set(enrichedProducts.map(p => p.shop).filter(Boolean))) as string[];
+  const uniqueParentCategories = Array.from(new Set(enrichedProducts.map(p => p.parentCategory).filter(Boolean))) as string[];
   const uniqueCategories = Array.from(new Set(enrichedProducts.map(p => p.category).filter(Boolean))) as string[];
   const uniqueSources = Array.from(new Set([
     ...(settings.opportunitySources || []),
@@ -679,8 +682,8 @@ export const ProductManagement: React.FC = () => {
   const filteredProducts = enrichedProducts.filter(p => {
     const matchesSearch = p.productId?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const pYear = p.month?.split('-')[0];
-    const pMonth = p.month?.split('-')[1];
+    const pYear = typeof p.month === 'string' ? p.month.split('-')[0] : null;
+    const pMonth = typeof p.month === 'string' ? p.month.split('-')[1] : null;
     const pDay = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
 
     const matchesYear = filterYear === 'all' || pYear === filterYear;
@@ -698,6 +701,7 @@ export const ProductManagement: React.FC = () => {
     const matchesChannel = filterChannel === 'all' || p.channel === filterChannel;
     const matchesShop = filterShop === 'all' || p.shop === filterShop;
     const matchesOwner = filterOwner === 'all' || getUserDisplayName(p.assignedOwner || p.ownerName) === filterOwner;
+    const matchesParentCategory = filterParentCategory === 'all' || p.parentCategory === filterParentCategory;
     const matchesCategory = filterCategory === 'all' || p.category === filterCategory;
     const matchesSource = filterSource === 'all' || p.source === filterSource;
     
@@ -706,7 +710,7 @@ export const ProductManagement: React.FC = () => {
       matchesSop = p.steps && p.steps[filterSopStep] === true;
     }
     
-    return matchesSearch && matchesYear && matchesMonth && matchesDay && matchesDateRange && matchesChannel && matchesShop && matchesOwner && matchesCategory && matchesSource && matchesSop;
+    return matchesSearch && matchesYear && matchesMonth && matchesDay && matchesDateRange && matchesChannel && matchesShop && matchesOwner && matchesParentCategory && matchesCategory && matchesSource && matchesSop;
   });
 
   const judgments = settings.linkJudgments || [
@@ -747,11 +751,9 @@ export const ProductManagement: React.FC = () => {
           </div>
           <div className="flex bg-[#E3E3E8] p-1 rounded-xl gap-1 overflow-x-auto custom-scrollbar flex-nowrap shrink-0 max-w-full">
             <Popover>
-               <PopoverTrigger render={
-                  <button type="button" className="flex items-center h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] shadow-none w-auto cursor-pointer focus:bg-white transition-colors">
-                     日期 <ChevronDown size={14} className="ml-1 opacity-50" />
-                  </button>
-               } />
+               <PopoverTrigger className="flex items-center h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] shadow-none w-auto cursor-pointer focus:bg-white transition-colors">
+                  日期 <ChevronDown size={14} className="ml-1 opacity-50" />
+               </PopoverTrigger>
                <PopoverContent className="w-auto p-5 rounded-2xl shadow-xl z-50 bg-white border border-black/10 flex flex-col gap-4" align="start">
                   <div>
                      <p className="text-xs font-bold text-[#1D1D1F] mb-2">按区间筛选</p>
@@ -814,6 +816,15 @@ export const ProductManagement: React.FC = () => {
               <SelectContent className="rounded-xl">
                 <SelectItem value="all">全部商机来源</SelectItem>
                 {uniqueSources.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterParentCategory} onValueChange={setFilterParentCategory}>
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+                <SelectValue>{filterParentCategory === 'all' ? '全部类目' : filterParentCategory}</SelectValue>
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="all">全部类目</SelectItem>
+                {uniqueParentCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterSopStep} onValueChange={setFilterSopStep}>

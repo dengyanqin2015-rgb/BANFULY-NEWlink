@@ -27,6 +27,7 @@ export const BentoProgress: React.FC = () => {
   const [filterChannel, setFilterChannel] = useState<string>('all');
   const [filterShop, setFilterShop] = useState<string>('all');
   const [filterOwner, setFilterOwner] = useState<string>('all');
+  const [filterParentCategory, setFilterParentCategory] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
 
   useEffect(() => {
@@ -91,6 +92,7 @@ export const BentoProgress: React.FC = () => {
   const uniqueDays = Array.from(new Set(plannings.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean)));
   const uniqueChannels = Array.from(new Set(plannings.map(p => p.channel).filter(Boolean)));
   const uniqueShops = Array.from(new Set(plannings.map(p => p.shop).filter(Boolean)));
+  const uniqueParentCategories = Array.from(new Set(plannings.map(p => p.parentCategory).filter(Boolean)));
   const uniqueOwners = Array.from(new Set(plannings.map(p => p.ownerName).filter(Boolean)));
   const uniqueCategories = Array.from(new Set(plannings.map(p => p.category).filter(Boolean)));
 
@@ -104,6 +106,7 @@ export const BentoProgress: React.FC = () => {
     if (filterChannel !== 'all' && p.channel !== filterChannel) return false;
     if (filterShop !== 'all' && p.shop !== filterShop) return false;
     if (filterOwner !== 'all' && p.ownerName !== filterOwner) return false;
+    if (filterParentCategory !== 'all' && p.parentCategory !== filterParentCategory) return false;
     if (filterCategory !== 'all' && p.category !== filterCategory) return false;
     return true;
   });
@@ -118,6 +121,7 @@ export const BentoProgress: React.FC = () => {
     if (filterChannel !== 'all' && p.channel !== filterChannel) return false;
     if (filterShop !== 'all' && p.shop !== filterShop) return false;
     if (filterOwner !== 'all' && p.ownerName !== filterOwner) return false;
+    if (filterParentCategory !== 'all' && p.parentCategory !== filterParentCategory) return false;
     if (filterCategory !== 'all' && p.category !== filterCategory) return false;
     return true;
   });
@@ -159,6 +163,7 @@ export const BentoProgress: React.FC = () => {
   const timeProgress = (now.getDate() / daysInMonth) * 100;
 
   const dimensionLabels = {
+    parentCategory: '类目',
     category: '品类',
     scene: '场景',
     shop: '店铺',
@@ -237,6 +242,16 @@ export const BentoProgress: React.FC = () => {
             </SelectContent>
           </Select>
 
+          <Select value={filterParentCategory} onValueChange={setFilterParentCategory}>
+            <SelectTrigger className="h-8 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+              <SelectValue>{filterParentCategory === 'all' ? '全部类目' : filterParentCategory}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="rounded-xl">
+              <SelectItem value="all">全部类目</SelectItem>
+              {uniqueParentCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          
           <Select value={filterCategory} onValueChange={setFilterCategory}>
             <SelectTrigger className="h-8 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
               <SelectValue>{filterCategory === 'all' ? '全部品类' : filterCategory}</SelectValue>

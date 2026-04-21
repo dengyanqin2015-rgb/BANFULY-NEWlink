@@ -39,6 +39,7 @@ export const Planning: React.FC = () => {
   const [filterChannel, setFilterChannel] = useState('all');
   const [filterShop, setFilterShop] = useState('all');
   const [filterOwner, setFilterOwner] = useState('all');
+  const [filterParentCategory, setFilterParentCategory] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,9 +52,11 @@ export const Planning: React.FC = () => {
     shop: '',
     channel: '',
     source: '', // Added source
+    parentCategory: '', // Added parentCategory
   });
 
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; title?: string; message?: string; onConfirm: () => void } | null>(null);
+  const [fieldEdit, setFieldEdit] = useState<{ isOpen: boolean; id: string; field: string; value: string; title: string } | null>(null);
 
   useEffect(() => {
     if (location.state?.highlightId) {
@@ -180,6 +183,20 @@ export const Planning: React.FC = () => {
     }
   };
 
+  const handleUpdateField = async () => {
+    if (!fieldEdit) return;
+    try {
+      await updateDoc(doc(db, 'plannings', fieldEdit.id), {
+        [fieldEdit.field]: fieldEdit.value
+      });
+      await logOperation('UPDATE', 'PLANNING', fieldEdit.id, `修改规划字段 ${fieldEdit.field}: ${fieldEdit.value}`, profile);
+      toast.success('修改成功');
+      setFieldEdit(null);
+    } catch (error) {
+      toast.error('修改失败');
+    }
+  };
+
   const downloadTemplate = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('上新规划模板');
@@ -188,6 +205,7 @@ export const Planning: React.FC = () => {
     const columns = [
       { header: '月份', key: 'month', width: 15 },
       { header: '商机来源', key: 'source', width: 20 },
+      { header: '类目', key: 'parentCategory', width: 15 },
       { header: '品类', key: 'category', width: 15 },
       { header: '场景', key: 'scene', width: 15 },
       { header: '核心关键词', key: 'keywords', width: 25 },
@@ -228,7 +246,7 @@ export const Planning: React.FC = () => {
     });
     
     // 写入渠道-店铺对应关系 (按渠道排序，用于联动)
-    channelData.sort((a, b) => a.channel.localeCompare(b.channel));
+    channelData.sort((a, b) => String(a.channel).localeCompare(String(b.channel)));
     channelData.forEach((item, i) => {
       dataSheet.getCell(`C${i + 1}`).value = item.channel;
       dataSheet.getCell(`D${i + 1}`).value = item.shop;
@@ -256,6 +274,7 @@ export const Planning: React.FC = () => {
     worksheet.addRow({
       month: months[0],
       source: sources[0],
+      parentCategory: '女装',
       category: '连衣裙',
       scene: '通勤',
       keywords: '法式,碎花',
@@ -281,7 +300,7 @@ export const Planning: React.FC = () => {
       
       // G列：渠道 (下拉框)
       if (uniqueChannels.length > 0) {
-        worksheet.getCell(`G${i}`).dataValidation = {
+        worksheet.getCell(`H${i}`).dataValidation = {
           type: 'list',
           allowBlank: true,
           formulae: [`"${uniqueChannels.join(',')}"`],
@@ -290,7 +309,7 @@ export const Planning: React.FC = () => {
 
       // H列：店铺 (下拉框 - 展示所有店铺，避免跨平台兼容性问题)
       if (allShops.length > 0) {
-        worksheet.getCell(`H${i}`).dataValidation = {
+        worksheet.getCell(`I${i}`).dataValidation = {
           type: 'list',
           allowBlank: true,
           formulae: [`"${allShops.join(',')}"`],
@@ -343,6 +362,7 @@ export const Planning: React.FC = () => {
           const docRef = await addDoc(collection(db, 'plannings'), {
             month: String(item['月份'] || ''),
             source: item['商机来源'] || '',
+            parentCategory: item['类目'] || '',
             category: item['品类'] || '',
             scene: item['场景'] || '',
             keywords: item['核心关键词'] || '',
@@ -376,6 +396,7 @@ export const Planning: React.FC = () => {
   const uniqueDays = Array.from(new Set(plannings.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean))).sort().reverse() as string[];
   const uniqueChannels = Array.from(new Set(plannings.map(p => p.channel).filter(Boolean))) as string[];
   const uniqueShops = Array.from(new Set(plannings.map(p => p.shop).filter(Boolean))) as string[];
+  const uniqueParentCategories = Array.from(new Set(plannings.map(p => p.parentCategory).filter(Boolean))) as string[];
   const uniqueCategories = Array.from(new Set(plannings.map(p => p.category).filter(Boolean))) as string[];
 
   const getUserDisplayName = (emailOrName: string) => {
@@ -397,9 +418,10 @@ export const Planning: React.FC = () => {
     const matchesChannel = filterChannel === 'all' || p.channel === filterChannel;
     const matchesShop = filterShop === 'all' || p.shop === filterShop;
     const matchesOwner = filterOwner === 'all' || getUserDisplayName(p.ownerName) === filterOwner;
+    const matchesParentCategory = filterParentCategory === 'all' || p.parentCategory === filterParentCategory;
     const matchesCategory = filterCategory === 'all' || p.category === filterCategory;
     
-    return matchesYear && matchesMonth && matchesDay && matchesChannel && matchesShop && matchesOwner && matchesCategory;
+    return matchesYear && matchesMonth && matchesDay && matchesChannel && matchesShop && matchesOwner && matchesParentCategory && matchesCategory;
   });
 
   return (
@@ -463,6 +485,15 @@ export const Planning: React.FC = () => {
               <SelectContent className="rounded-xl">
                 <SelectItem value="all">全部负责人</SelectItem>
                 {uniqueOwners.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterParentCategory} onValueChange={setFilterParentCategory}>
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+                <SelectValue>{filterParentCategory === 'all' ? '全部类目' : filterParentCategory}</SelectValue>
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="all">全部类目</SelectItem>
+                {uniqueParentCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterCategory} onValueChange={setFilterCategory}>
@@ -529,8 +560,8 @@ export const Planning: React.FC = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">规划数量</label>
-                      <Input type="number" className="rounded-xl border-black/10" value={formData.plannedCount} onChange={e => setFormData({...formData, plannedCount: Number(e.target.value)})} />
+                      <label className="text-xs font-bold text-[#86868B] uppercase">类目</label>
+                      <Input placeholder="如：女装" className="rounded-xl border-black/10" value={formData.parentCategory} onChange={e => setFormData({...formData, parentCategory: e.target.value})} />
                     </div>
                     <div className="space-y-2">
                       <label className="text-xs font-bold text-[#86868B] uppercase">品类</label>
@@ -539,13 +570,17 @@ export const Planning: React.FC = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
+                      <label className="text-xs font-bold text-[#86868B] uppercase">规划数量</label>
+                      <Input type="number" className="rounded-xl border-black/10" value={formData.plannedCount} onChange={e => setFormData({...formData, plannedCount: Number(e.target.value)})} />
+                    </div>
+                    <div className="space-y-2">
                       <label className="text-xs font-bold text-[#86868B] uppercase">场景</label>
                       <Input placeholder="如：通勤/约会" className="rounded-xl border-black/10" value={formData.scene} onChange={e => setFormData({...formData, scene: e.target.value})} />
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">核心关键词</label>
-                      <Input placeholder="多个关键词用逗号隔开" className="rounded-xl border-black/10" value={formData.keywords} onChange={e => setFormData({...formData, keywords: e.target.value})} />
-                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-[#86868B] uppercase">核心关键词</label>
+                    <Input placeholder="多个关键词用逗号隔开" className="rounded-xl border-black/10" value={formData.keywords} onChange={e => setFormData({...formData, keywords: e.target.value})} />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -598,6 +633,7 @@ export const Planning: React.FC = () => {
             <TableRow className="hover:bg-transparent border-none">
               <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">月份</TableHead>
               <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">商机来源</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">类目</TableHead>
               <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">品类</TableHead>
               <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">场景</TableHead>
               <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">核心关键词</TableHead>
@@ -610,7 +646,7 @@ export const Planning: React.FC = () => {
           <TableBody>
             {filteredPlannings.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} className="h-32 text-center text-[#86868B] text-sm">
+                <TableCell colSpan={10} className="h-32 text-center text-[#86868B] text-sm">
                   {(filterYear !== 'all' || filterMonth !== 'all' || filterDay !== 'all' || filterChannel !== 'all' || filterShop !== 'all' || filterOwner !== 'all' || filterCategory !== 'all') ? '未找到匹配的规划' : '暂无规划数据'}
                 </TableCell>
               </TableRow>
@@ -627,6 +663,26 @@ export const Planning: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <div className="text-xs text-[#86868B] font-bold">{p.source || '-'}</div>
+                  </TableCell>
+                  <TableCell className="group/field relative">
+                    <div className="flex items-center gap-2">
+                      <div className="text-sm font-bold text-[#1D1D1F]">{p.parentCategory || '-'}</div>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFieldEdit({
+                            isOpen: true,
+                            id: p.id,
+                            field: 'parentCategory',
+                            value: p.parentCategory || '',
+                            title: '修改类目'
+                          });
+                        }}
+                        className="p-1 rounded-md hover:bg-black/5 opacity-0 group-hover/field:opacity-100 transition-opacity"
+                      >
+                        <Edit2 size={12} className="text-[#86868B]" />
+                      </button>
+                    </div>
                   </TableCell>
                   <TableCell>
                     <div className="text-sm font-bold text-[#1D1D1F]">{p.category}</div>
@@ -690,6 +746,41 @@ export const Planning: React.FC = () => {
               >
                 确认删除
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FIELD EDIT Modal */}
+      {fieldEdit && fieldEdit.isOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[32px] p-8 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold text-[#1D1D1F] mb-6">{fieldEdit.title}</h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-[#86868B] uppercase">新值</label>
+                <Input 
+                  autoFocus
+                  value={fieldEdit.value} 
+                  onChange={(e) => setFieldEdit({...fieldEdit, value: e.target.value})}
+                  className="rounded-xl border-black/10 h-12"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleUpdateField();
+                    if (e.key === 'Escape') setFieldEdit(null);
+                  }}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-4">
+                <Button variant="ghost" onClick={() => setFieldEdit(null)} className="rounded-xl font-bold h-11 px-6">
+                  取消
+                </Button>
+                <Button 
+                  onClick={handleUpdateField}
+                  className="bg-[#FF6B00] hover:bg-[#E66000] text-white rounded-xl font-bold px-8 h-11 shadow-lg shadow-[#FF6B00]/20"
+                >
+                  保存修改
+                </Button>
+              </div>
             </div>
           </div>
         </div>

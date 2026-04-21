@@ -121,8 +121,8 @@ export const Dashboard: React.FC = () => {
     return user?.displayName || user?.username || emailOrName.split('@')[0];
   };
 
-  const uniqueYears = Array.from(new Set([...plannings, ...products].map(p => p.month?.split('-')[0]).filter(Boolean)));
-  const uniqueMonths = Array.from(new Set([...plannings, ...products].map(p => p.month?.split('-')[1]).filter(Boolean)));
+  const uniqueYears = Array.from(new Set([...plannings, ...products].map(p => (typeof p.month === 'string' ? p.month : '')?.split('-')[0]).filter(Boolean)));
+  const uniqueMonths = Array.from(new Set([...plannings, ...products].map(p => (typeof p.month === 'string' ? p.month : '')?.split('-')[1]).filter(Boolean)));
   const uniqueDays = Array.from(new Set([...plannings, ...products].map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean)));
   const uniqueChannels = Array.from(new Set([...plannings, ...products].map(p => p.channel).filter(Boolean)));
   const uniqueShops = Array.from(new Set([...plannings, ...products].map(p => p.shop).filter(Boolean)));
@@ -130,8 +130,9 @@ export const Dashboard: React.FC = () => {
   const uniqueOwners = Array.from(new Set([...plannings.map(p => getUserDisplayName(p.ownerName)), ...products.map(p => getUserDisplayName(p.assignedOwner || p.ownerName))].filter(Boolean)));
 
   const filteredPlannings = plannings.filter(p => {
-    if (filterYear !== 'all' && p.month?.split('-')[0] !== filterYear) return false;
-    if (filterMonth !== 'all' && p.month?.split('-')[1] !== filterMonth) return false;
+    const mStr = typeof p.month === 'string' ? p.month : '';
+    if (filterYear !== 'all' && mStr.split('-')[0] !== filterYear) return false;
+    if (filterMonth !== 'all' && mStr.split('-')[1] !== filterMonth) return false;
     if (filterDay !== 'all' && p.uploadTime && new Date(p.uploadTime).getDate().toString().padStart(2, '0') !== filterDay) return false;
     if (filterChannel !== 'all' && p.channel !== filterChannel) return false;
     if (filterShop !== 'all' && p.shop !== filterShop) return false;
@@ -141,8 +142,9 @@ export const Dashboard: React.FC = () => {
   });
 
   const filteredProducts = products.filter(p => {
-    if (filterYear !== 'all' && p.month?.split('-')[0] !== filterYear) return false;
-    if (filterMonth !== 'all' && p.month?.split('-')[1] !== filterMonth) return false;
+    const mStr = typeof p.month === 'string' ? p.month : '';
+    if (filterYear !== 'all' && mStr.split('-')[0] !== filterYear) return false;
+    if (filterMonth !== 'all' && mStr.split('-')[1] !== filterMonth) return false;
     if (filterDay !== 'all' && p.uploadTime && new Date(p.uploadTime).getDate().toString().padStart(2, '0') !== filterDay) return false;
     if (filterChannel !== 'all' && p.channel !== filterChannel) return false;
     if (filterShop !== 'all' && p.shop !== filterShop) return false;
@@ -371,7 +373,7 @@ export const Dashboard: React.FC = () => {
       if (owner) item[`owner_${owner}`] = (item[`owner_${owner}`] || 0) + 1;
     });
 
-    return Array.from(dataMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(dataMap.values()).sort((a, b) => String(a.name).localeCompare(String(b.name)));
   };
 
   const chartData = getChartData();
