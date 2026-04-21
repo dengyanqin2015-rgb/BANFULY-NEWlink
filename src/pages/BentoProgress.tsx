@@ -22,7 +22,16 @@ export const BentoProgress: React.FC = () => {
   const { settings } = useSettings();
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [aggDimension, setAggDimension] = useState<'category' | 'scene' | 'shop' | 'channel' | 'ownerName'>('category');
+  // Track double-click prevent
+  const [isNavigating, setIsNavigating] = useState(false);
   const [previewGroup, setPreviewGroup] = useState<string | null>(null);
+
+  const handlePreviewOpen = (groupName: string) => {
+    if (isNavigating) return;
+    setIsNavigating(true);
+    setPreviewGroup(groupName);
+    setTimeout(() => setIsNavigating(false), 500); // Debounce
+  };
 
   const [filterYear, setFilterYear] = useState<string>('all');
   const [filterMonth, setFilterMonth] = useState<string>('all');
@@ -253,7 +262,7 @@ export const BentoProgress: React.FC = () => {
             return (
               <motion.div
                 key={group.name}
-                onDoubleClick={() => setPreviewGroup(group.name)}
+                onDoubleClick={() => handlePreviewOpen(group.name)}
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: i * 0.05 }}
@@ -346,7 +355,7 @@ export const BentoProgress: React.FC = () => {
               {groups.map((group: any) => {
                 const rate = group.planned > 0 ? Math.round((group.uploaded / group.planned) * 100) : 0;
                 return (
-                  <tr key={group.name} onDoubleClick={() => setPreviewGroup(group.name)} className="hover:bg-[#F5F5F7]/50 transition-colors cursor-pointer">
+                  <tr key={group.name} onDoubleClick={() => handlePreviewOpen(group.name)} className="hover:bg-[#F5F5F7]/50 transition-colors cursor-pointer">
                     <td className="px-6 py-4">
                       <span className="text-sm font-bold text-[#1D1D1F]">{group.name}</span>
                       <p className="text-[10px] text-[#86868B] font-bold">{Array.from(group.details).join(' · ')}</p>
