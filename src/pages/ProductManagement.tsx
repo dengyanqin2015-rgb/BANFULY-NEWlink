@@ -109,15 +109,15 @@ export const ProductManagement: React.FC = () => {
       const p = location.state.planning;
       setNewProduct({
         productId: '',
-        category: p.category || '',
-        scene: p.scene || '',
-        keywords: p.keywords || '',
-        source: p.source || '',
-        channel: p.channel || '',
-        shop: p.shop || '',
-        planningId: p.id || '',
-        assignedOwner: p.ownerName || '',
-        month: p.month || '',
+        category: p?.category || '',
+        scene: p?.scene || '',
+        keywords: p?.keywords || '',
+        source: p?.source || '',
+        channel: p?.channel || '',
+        shop: p?.shop || '',
+        planningId: p?.id || '',
+        assignedOwner: p?.ownerName || '',
+        month: p?.month || '',
       });
       setIsAddOpen(true);
       
