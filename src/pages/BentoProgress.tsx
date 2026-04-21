@@ -87,8 +87,8 @@ export const BentoProgress: React.FC = () => {
     };
   }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
 
-  const uniqueYears = Array.from(new Set(plannings.map(p => p.month?.split('-')[0]).filter(Boolean)));
-  const uniqueMonths = Array.from(new Set(plannings.map(p => p.month?.split('-')[1]).filter(Boolean)));
+  const uniqueYears = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean)));
+  const uniqueMonths = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean)));
   const uniqueDays = Array.from(new Set(plannings.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean)));
   const uniqueChannels = Array.from(new Set(plannings.map(p => p.channel).filter(Boolean)));
   const uniqueShops = Array.from(new Set(plannings.map(p => p.shop).filter(Boolean)));
@@ -97,8 +97,8 @@ export const BentoProgress: React.FC = () => {
   const uniqueCategories = Array.from(new Set(plannings.map(p => p.category).filter(Boolean)));
 
   const filteredPlannings = plannings.filter(p => {
-    const pYear = p.month?.split('-')[0];
-    const pMonth = p.month?.split('-')[1];
+    const pYear = typeof p.month === 'string' ? p.month.split('-')[0] : null;
+    const pMonth = typeof p.month === 'string' ? p.month.split('-')[1] : null;
     const pDay = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
     if (filterYear !== 'all' && pYear !== filterYear) return false;
     if (filterMonth !== 'all' && pMonth !== filterMonth) return false;
@@ -112,8 +112,8 @@ export const BentoProgress: React.FC = () => {
   });
 
   const filteredProducts = products.filter(p => {
-    const pYear = p.month?.split('-')[0];
-    const pMonth = p.month?.split('-')[1];
+    const pYear = typeof p.month === 'string' ? p.month.split('-')[0] : null;
+    const pMonth = typeof p.month === 'string' ? p.month.split('-')[1] : null;
     const pDay = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
     if (filterYear !== 'all' && pYear !== filterYear) return false;
     if (filterMonth !== 'all' && pMonth !== filterMonth) return false;
@@ -234,11 +234,11 @@ export const BentoProgress: React.FC = () => {
 
           <Select value={filterOwner} onValueChange={setFilterOwner}>
             <SelectTrigger className="h-8 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
-              <SelectValue>{filterOwner === 'all' ? '全部负责人' : filterOwner.split('@')[0]}</SelectValue>
+              <SelectValue>{filterOwner === 'all' ? '全部负责人' : (typeof filterOwner === 'string' ? filterOwner.split('@')[0] : String(filterOwner))}</SelectValue>
             </SelectTrigger>
             <SelectContent className="rounded-xl">
               <SelectItem value="all">全部负责人</SelectItem>
-              {uniqueOwners.map(o => <SelectItem key={o} value={o}>{(String(o) || '').split('@')[0]}</SelectItem>)}
+              {uniqueOwners.map(o => <SelectItem key={o} value={o}>{(typeof o === 'string' ? o.split('@')[0] : String(o))}</SelectItem>)}
             </SelectContent>
           </Select>
 
@@ -357,7 +357,7 @@ export const BentoProgress: React.FC = () => {
                   <div className="mt-3 space-y-1.5 text-[10px] text-[#86868B] font-medium">
                     <div className="flex items-center gap-1.5">
                       <Users size={12} className="shrink-0" />
-                      <span className="truncate">{Array.from(group.owners).map(o => String(o).split('@')[0]).join(', ')}</span>
+                      <span className="truncate">{Array.from(group.owners).map(o => typeof o === 'string' ? o.split('@')[0] : String(o)).join(', ')}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Store size={12} className="shrink-0" />
@@ -398,7 +398,7 @@ export const BentoProgress: React.FC = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2 text-xs font-bold text-[#1D1D1F]">
-                        <Users size={12} className="text-[#86868B]" /> {Array.from(group.owners).map(o => String(o).split('@')[0]).join(', ')}
+                        <Users size={12} className="text-[#86868B]" /> {Array.from(group.owners).map(o => typeof o === 'string' ? o.split('@')[0] : String(o)).join(', ')}
                       </div>
                       <div className="flex items-center gap-2 text-[10px] text-[#86868B] font-bold mt-1">
                         <Store size={12} /> {Array.from(group.shops).join(', ')}
@@ -475,7 +475,7 @@ export const BentoProgress: React.FC = () => {
                           <span className="text-[#86868B] mx-1 text-sm">/</span>
                           <span className="text-sm text-[#1D1D1F] font-bold">{p.plannedCount}</span>
                         </TableCell>
-                        <TableCell className="text-sm text-[#1D1D1F] font-medium">{(p.ownerName || '').split('@')[0]}</TableCell>
+                        <TableCell className="text-sm text-[#1D1D1F] font-medium">{typeof p.ownerName === 'string' ? p.ownerName.split('@')[0] : String(p.ownerName || '')}</TableCell>
                         <TableCell>
                           <div className="text-sm text-[#1D1D1F] font-bold">{p.shop}</div>
                           <div className="text-[11px] text-[#86868B] font-medium">{p.channel}</div>

@@ -674,7 +674,7 @@ export const ProductManagement: React.FC = () => {
   const getUserDisplayName = (emailOrName: string) => {
     if (!emailOrName) return '未知';
     const user = users.find(u => u.email === emailOrName || u.displayName === emailOrName || u.username === emailOrName);
-    return user?.displayName || user?.username || emailOrName.split('@')[0];
+    return user?.displayName || user?.username || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
   };
 
   const uniqueOwners = Array.from(new Set(enrichedProducts.map(p => getUserDisplayName(p.assignedOwner || p.ownerName)).filter(Boolean))) as string[];

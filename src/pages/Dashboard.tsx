@@ -118,11 +118,11 @@ export const Dashboard: React.FC = () => {
   const getUserDisplayName = (emailOrName: string) => {
     if (!emailOrName) return '未知';
     const user = users.find(u => u.email === emailOrName || u.displayName === emailOrName || u.username === emailOrName);
-    return user?.displayName || user?.username || emailOrName.split('@')[0];
+    return user?.displayName || user?.username || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
   };
 
-  const uniqueYears = Array.from(new Set([...plannings, ...products].map(p => (typeof p.month === 'string' ? p.month : '')?.split('-')[0]).filter(Boolean)));
-  const uniqueMonths = Array.from(new Set([...plannings, ...products].map(p => (typeof p.month === 'string' ? p.month : '')?.split('-')[1]).filter(Boolean)));
+  const uniqueYears = Array.from(new Set([...plannings, ...products].map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean)));
+  const uniqueMonths = Array.from(new Set([...plannings, ...products].map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean)));
   const uniqueDays = Array.from(new Set([...plannings, ...products].map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean)));
   const uniqueChannels = Array.from(new Set([...plannings, ...products].map(p => p.channel).filter(Boolean)));
   const uniqueShops = Array.from(new Set([...plannings, ...products].map(p => p.shop).filter(Boolean)));
@@ -130,9 +130,9 @@ export const Dashboard: React.FC = () => {
   const uniqueOwners = Array.from(new Set([...plannings.map(p => getUserDisplayName(p.ownerName)), ...products.map(p => getUserDisplayName(p.assignedOwner || p.ownerName))].filter(Boolean)));
 
   const filteredPlannings = plannings.filter(p => {
-    const mStr = typeof p.month === 'string' ? p.month : '';
-    if (filterYear !== 'all' && mStr.split('-')[0] !== filterYear) return false;
-    if (filterMonth !== 'all' && mStr.split('-')[1] !== filterMonth) return false;
+    const pMonthStr = typeof p.month === 'string' ? p.month : '';
+    if (filterYear !== 'all' && pMonthStr.split('-')[0] !== filterYear) return false;
+    if (filterMonth !== 'all' && pMonthStr.split('-')[1] !== filterMonth) return false;
     if (filterDay !== 'all' && p.uploadTime && new Date(p.uploadTime).getDate().toString().padStart(2, '0') !== filterDay) return false;
     if (filterChannel !== 'all' && p.channel !== filterChannel) return false;
     if (filterShop !== 'all' && p.shop !== filterShop) return false;
@@ -142,9 +142,9 @@ export const Dashboard: React.FC = () => {
   });
 
   const filteredProducts = products.filter(p => {
-    const mStr = typeof p.month === 'string' ? p.month : '';
-    if (filterYear !== 'all' && mStr.split('-')[0] !== filterYear) return false;
-    if (filterMonth !== 'all' && mStr.split('-')[1] !== filterMonth) return false;
+    const pMonthStr = typeof p.month === 'string' ? p.month : '';
+    if (filterYear !== 'all' && pMonthStr.split('-')[0] !== filterYear) return false;
+    if (filterMonth !== 'all' && pMonthStr.split('-')[1] !== filterMonth) return false;
     if (filterDay !== 'all' && p.uploadTime && new Date(p.uploadTime).getDate().toString().padStart(2, '0') !== filterDay) return false;
     if (filterChannel !== 'all' && p.channel !== filterChannel) return false;
     if (filterShop !== 'all' && p.shop !== filterShop) return false;

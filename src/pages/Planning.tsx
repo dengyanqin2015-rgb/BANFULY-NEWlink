@@ -391,8 +391,8 @@ export const Planning: React.FC = () => {
     reader.readAsBinaryString(file);
   };
 
-  const uniqueYears = Array.from(new Set(plannings.map(p => p.month?.split('-')[0]).filter(Boolean))).sort().reverse() as string[];
-  const uniqueMonths = Array.from(new Set(plannings.map(p => p.month?.split('-')[1]).filter(Boolean))).sort().reverse() as string[];
+  const uniqueYears = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean))).sort().reverse() as string[];
+  const uniqueMonths = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean))).sort().reverse() as string[];
   const uniqueDays = Array.from(new Set(plannings.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean))).sort().reverse() as string[];
   const uniqueChannels = Array.from(new Set(plannings.map(p => p.channel).filter(Boolean))) as string[];
   const uniqueShops = Array.from(new Set(plannings.map(p => p.shop).filter(Boolean))) as string[];
@@ -402,14 +402,14 @@ export const Planning: React.FC = () => {
   const getUserDisplayName = (emailOrName: string) => {
     if (!emailOrName) return '未知';
     const user = users.find(u => u.email === emailOrName || u.displayName === emailOrName || u.username === emailOrName);
-    return user?.displayName || user?.username || emailOrName.split('@')[0];
+    return user?.displayName || user?.username || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
   };
 
   const uniqueOwners = Array.from(new Set(plannings.map(p => getUserDisplayName(p.ownerName)).filter(Boolean))) as string[];
 
   const filteredPlannings = plannings.filter(p => {
-    const pYear = p.month?.split('-')[0];
-    const pMonth = p.month?.split('-')[1];
+    const pYear = typeof p.month === 'string' ? p.month.split('-')[0] : null;
+    const pMonth = typeof p.month === 'string' ? p.month.split('-')[1] : null;
     const pDay = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
 
     const matchesYear = filterYear === 'all' || pYear === filterYear;

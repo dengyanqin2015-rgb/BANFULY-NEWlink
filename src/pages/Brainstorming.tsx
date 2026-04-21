@@ -1352,7 +1352,8 @@ export const Brainstorming: React.FC = () => {
   const getUserDisplayName = useCallback((emailOrName: string) => {
     if (!emailOrName) return '未知';
     const user = users.find(u => u.email === emailOrName || u.displayName === emailOrName || u.username === emailOrName || u.id === emailOrName);
-    return user?.displayName || user?.username || (emailOrName.includes('@') ? emailOrName.split('@')[0] : emailOrName);
+    const emailOrNameStr = typeof emailOrName === 'string' ? emailOrName : String(emailOrName || '');
+    return user?.displayName || user?.username || (emailOrNameStr.includes('@') ? emailOrNameStr.split('@')[0] : emailOrNameStr);
   }, [users]);
 
   if (id && id !== 'list') {

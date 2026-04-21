@@ -142,7 +142,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 {profile?.displayName?.[0] || profile?.email?.[0]}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">{profile?.displayName || profile?.email?.split('@')[0]}</p>
+                <p className="text-sm font-semibold truncate">{profile?.displayName || (typeof profile?.email === 'string' ? profile.email.split('@')[0] : String(profile?.email || ''))}</p>
                 <p className="text-xs text-gray-400 tracking-wider">{(profile?.role === 'super_admin' ? 'SYSTEM ADMIN' : profile?.role).toUpperCase()}</p>
               </div>
             </div>
