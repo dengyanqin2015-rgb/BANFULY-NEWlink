@@ -91,10 +91,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </div>
       )}
 
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 overflow-hidden">
         {/* Sidebar */}
-        <aside className="w-[220px] bg-white/70 backdrop-blur-[20px] border-r border-black/10 flex flex-col shrink-0">
-          <div className="p-8 pb-8">
+        <aside className="w-[220px] bg-white/70 backdrop-blur-[20px] border-r border-black/10 flex flex-col shrink-0 overflow-y-auto">
+          <div className="p-8 pb-8 shrink-0">
             <h1 className="text-lg font-bold tracking-tight flex items-center gap-2.5 whitespace-nowrap overflow-hidden text-ellipsis">
               <div className="w-7 h-7 bg-[#FF6B00] rounded-lg flex items-center justify-center text-white shrink-0">
                 <Package size={18} />
@@ -124,7 +124,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             })}
           </nav>
 
-          <div className="p-4 border-t border-gray-100 flex flex-col gap-2">
+          <div className="p-4 border-t border-gray-100 flex flex-col gap-2 mt-auto shrink-0">
             {isSuperAdmin && (
               <div className="mb-2 px-2">
                 <p className="text-xs font-bold text-gray-400 mb-1 flex items-center gap-1"><Building2 size={12}/>组织切换</p>
@@ -158,8 +158,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 p-6 md:p-8 overflow-y-auto min-w-0">
-          <div className="w-full mx-auto max-w-[2000px]">
+        <main className="flex-1 overflow-y-auto">
+          <div className="p-6 md:p-8 w-full mx-auto max-w-[2000px]">
             {children}
           </div>
         </main>

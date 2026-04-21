@@ -515,12 +515,18 @@ export const ProductManagement: React.FC = () => {
   return (
     <TooltipProvider>
       <div className="space-y-6 w-full min-w-0">
-      <header className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#1D1D1F]">链接管理</h1>
-          <p className="text-xs text-[#86868B] mt-1">Product Lifecycle · 环节 SOP 跟踪与结果标注</p>
+      <header className="flex flex-col gap-4">
+        <div className="flex justify-between items-center w-full">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-[#1D1D1F]">链接管理</h1>
+            <p className="text-xs text-[#86868B] mt-1">Product Lifecycle · 环节 SOP 跟踪与结果标注</p>
+          </div>
+          <div className="flex items-center gap-4 shrink-0">
+             {/* Action Buttons ... maybe add Export/Add here if needed */}
+          </div>
         </div>
-        <div className="flex items-center gap-4">
+        
+        <div className="flex items-center gap-4 w-full">
           <div className="flex bg-[#E3E3E8] p-1 rounded-xl shrink-0">
             <div className="relative flex items-center">
               <Search className="absolute left-3 text-[#86868B]" size={14} />
