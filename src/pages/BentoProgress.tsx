@@ -22,16 +22,23 @@ export const BentoProgress: React.FC = () => {
   const { settings } = useSettings();
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [aggDimension, setAggDimension] = useState<'category' | 'scene' | 'shop' | 'channel' | 'ownerName'>('category');
-  // Track double-click prevent
-  const [isNavigating, setIsNavigating] = useState(false);
   const [previewGroup, setPreviewGroup] = useState<string | null>(null);
+  const [isReady, setIsReady] = useState(false);
 
-  const handlePreviewOpen = (groupName: string) => {
-    if (isNavigating) return;
-    setIsNavigating(true);
-    setPreviewGroup(groupName);
-    setTimeout(() => setIsNavigating(false), 500); // Debounce
+  const handlePreviewOpen = (group: string) => {
+    setPreviewGroup(group);
   };
+
+  useEffect(() => {
+    if (previewGroup) {
+      const timer = setTimeout(() => setIsReady(true), 150);
+      return () => {
+        setIsReady(false);
+        clearTimeout(timer);
+      };
+    }
+  }, [previewGroup]);
+
 
   const [filterYear, setFilterYear] = useState<string>('all');
   const [filterMonth, setFilterMonth] = useState<string>('all');
@@ -391,68 +398,75 @@ export const BentoProgress: React.FC = () => {
 
       <Dialog open={!!previewGroup} onOpenChange={(open) => !open && setPreviewGroup(null)}>
         <DialogContent className="max-w-[95vw] xl:max-w-[1200px] max-h-[85vh] overflow-y-auto rounded-[24px] p-0 gap-0 border-none [&>button]:hidden">
-          <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-xl border-b border-black/5 px-6 py-4 flex items-center justify-between">
-            <div>
-              <DialogTitle className="text-lg font-bold text-[#1D1D1F]">
-                {previewGroup} - 规划明细
-              </DialogTitle>
-              <p className="text-xs text-[#86868B] mt-1">双击行可直接跳转并进行一次性绑定</p>
-            </div>
-            <button onClick={() => setPreviewGroup(null)} className="p-2 hover:bg-[#F5F5F7] rounded-full transition-colors">
-              <X size={20} className="text-[#86868B]" />
-            </button>
-          </div>
-          <div className="p-6">
-            <div className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-x-auto">
-              <Table className="min-w-[900px]">
-                <TableHeader className="bg-[#F5F5F7]">
-                  <TableRow className="hover:bg-transparent border-none">
-                    <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">月份</TableHead>
-                    <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">商机来源</TableHead>
-                    <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">品类</TableHead>
-                    <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">场景</TableHead>
-                    <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">核心关键词</TableHead>
-                    <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 text-center">规划/已上架</TableHead>
-                    <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">负责人</TableHead>
-                    <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">店铺/渠道</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {previewPlannings.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={8} className="h-32 text-center text-[#86868B] text-sm">暂无数据</TableCell>
-                    </TableRow>
-                  ) : (
-                    previewPlannings.map((p) => (
-                      <TableRow 
-                        key={p.id} 
-                        onDoubleClick={() => navigate('/products', { state: { action: 'bind', planning: p } })}
-                        className="hover:bg-[#F5F5F7]/50 transition-colors border-black/5 group cursor-pointer"
-                      >
-                        <TableCell><div className="text-sm font-medium text-[#1D1D1F]">{p.month}</div></TableCell>
-                        <TableCell><div className="text-[11px] text-[#86868B] font-bold">{p.source}</div></TableCell>
-                        <TableCell><div className="text-sm font-bold text-[#1D1D1F]">{p.category}</div></TableCell>
-                        <TableCell><div className="text-[11px] text-[#86868B] font-medium">{p.scene}</div></TableCell>
-                        <TableCell className="text-sm text-[#1D1D1F] max-w-[200px] truncate">{p.keywords}</TableCell>
-                        <TableCell className="text-center">
-                          <span className="text-sm font-bold text-[#FF6B00]">{p.uploadedCount || 0}</span>
-                          <span className="text-[#86868B] mx-1 text-sm">/</span>
-                          <span className="text-sm text-[#1D1D1F] font-bold">{p.plannedCount}</span>
-                        </TableCell>
-                        <TableCell className="text-sm text-[#1D1D1F] font-medium">{typeof p.ownerName === 'string' ? p.ownerName.split('@')[0] : String(p.ownerName || '')}</TableCell>
-                        <TableCell>
-                          <div className="text-sm text-[#1D1D1F] font-bold">{p.shop}</div>
-                          <div className="text-[11px] text-[#86868B] font-medium">{p.channel}</div>
-                        </TableCell>
+          {isReady ? (
+            <div className="flex flex-col h-full">
+              <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-xl border-b border-black/5 px-6 py-4 flex items-center justify-between">
+                <div>
+                  <DialogTitle className="text-lg font-bold text-[#1D1D1F]">
+                    {previewGroup} - 规划明细
+                  </DialogTitle>
+                  <p className="text-xs text-[#86868B] mt-1">双击行可直接跳转并进行一次性绑定</p>
+                </div>
+                <button onClick={() => setPreviewGroup(null)} className="p-2 hover:bg-[#F5F5F7] rounded-full transition-colors">
+                  <X size={20} className="text-[#86868B]" />
+                </button>
+              </div>
+              <div className="p-6">
+                <div className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-x-auto">
+                  <Table className="min-w-[900px]">
+                    <TableHeader className="bg-[#F5F5F7]">
+                      <TableRow className="hover:bg-transparent border-none">
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">月份</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">商机来源</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">品类</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">场景</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">核心关键词</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 text-center">规划/已上架</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">负责人</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">店铺/渠道</TableHead>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {previewPlannings.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={8} className="h-32 text-center text-[#86868B] text-sm">暂无数据</TableCell>
+                        </TableRow>
+                      ) : (
+                        previewPlannings.map((p) => (
+                          <TableRow 
+                            key={p.id} 
+                            onDoubleClick={() => navigate('/products', { state: { action: 'bind', planning: p } })}
+                            className="hover:bg-[#F5F5F7]/50 transition-colors border-black/5 group cursor-pointer"
+                          >
+                            <TableCell><div className="text-sm font-medium text-[#1D1D1F]">{p.month}</div></TableCell>
+                            <TableCell><div className="text-[11px] text-[#86868B] font-bold">{p.source}</div></TableCell>
+                            <TableCell><div className="text-sm font-bold text-[#1D1D1F]">{p.category}</div></TableCell>
+                            <TableCell><div className="text-[11px] text-[#86868B] font-medium">{p.scene}</div></TableCell>
+                            <TableCell className="text-sm text-[#1D1D1F] max-w-[200px] truncate">{p.keywords}</TableCell>
+                            <TableCell className="text-center">
+                              <span className="text-sm font-bold text-[#FF6B00]">{p.uploadedCount || 0}</span>
+                              <span className="text-[#86868B] mx-1 text-sm">/</span>
+                              <span className="text-sm text-[#1D1D1F] font-bold">{p.plannedCount}</span>
+                            </TableCell>
+                            <TableCell className="text-sm text-[#1D1D1F] font-medium">{typeof p.ownerName === 'string' ? p.ownerName.split('@')[0] : String(p.ownerName || '')}</TableCell>
+                            <TableCell>
+                              <div className="text-sm text-[#1D1D1F] font-bold">{p.shop}</div>
+                              <div className="text-[11px] text-[#86868B] font-medium">{p.channel}</div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="h-64 flex items-center justify-center text-[#86868B]">加载中...</div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
   );
 };
+
