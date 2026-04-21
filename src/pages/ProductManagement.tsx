@@ -887,11 +887,11 @@ export const ProductManagement: React.FC = () => {
           </div>
           <div className="flex items-center gap-3 pl-6 ml-2">
             <Popover>
-              <PopoverTrigger asChild>
+              <PopoverTrigger render={
                 <Button variant="outline" size="sm" className="rounded-xl h-10 gap-2 border-black/10 px-5 text-[#1D1D1F] font-bold">
                   导入/导出 <ChevronDown size={16} className="opacity-50" />
                 </Button>
-              </PopoverTrigger>
+              } />
               <PopoverContent className="w-56 p-2 rounded-2xl shadow-xl z-50 bg-white border border-black/10 flex flex-col gap-1" align="end">
                 <Button variant="ghost" className="w-full justify-start gap-3 h-11 rounded-xl text-[13px] font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]" onClick={exportToExcel}>
                   <Download size={16} /> 导出当前数据
@@ -1231,14 +1231,14 @@ export const ProductManagement: React.FC = () => {
                              className="text-left bg-transparent border-none outline-none w-[110px] cursor-pointer hover:bg-black/5 px-2 py-1.5 rounded-lg transition-colors flex items-start h-[42px]" 
                              onClick={(e) => e.stopPropagation()}
                              onDoubleClick={(e) => e.stopPropagation()}
-                          />
-                       }>
+                          >
                              {p.notes ? (
                                 <Tooltip content={<div className="text-[13px] max-w-[200px] whitespace-normal break-words leading-relaxed">{p.notes}</div>} side="top">
                                    <div className="text-[13px] text-[#1D1D1F] whitespace-normal break-words leading-[1.3] line-clamp-2 w-full">{p.notes}</div>
                                 </Tooltip>
                              ) : <div className="flex items-center gap-1 text-[13px] text-[#86868B] opacity-70 hover:opacity-100 transition-opacity"><Edit2 size={12} /><span>添加备注</span></div>}
-                       </PopoverTrigger>
+                          </button>
+                       } />
                        <PopoverContent className="w-80 p-5 rounded-2xl shadow-xl z-50 bg-white border border-black/10 flex flex-col gap-3">
                            <p className="text-[15px] font-bold text-[#1D1D1F] flex items-center justify-between">
                               更新备注

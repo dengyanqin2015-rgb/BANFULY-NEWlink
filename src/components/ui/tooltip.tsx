@@ -6,7 +6,12 @@ import { cn } from "@/lib/utils"
 
 const TooltipProvider = TooltipPrimitive.Provider
 const TooltipRoot = TooltipPrimitive.Root
-const TooltipTrigger = TooltipPrimitive.Trigger
+const TooltipTrigger = ({ asChild, children, ...props }: TooltipPrimitive.Trigger.Props) => {
+  if (asChild) {
+    return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" render={children} {...props} />
+  }
+  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props}>{children}</TooltipPrimitive.Trigger>
+}
 const TooltipPortal = TooltipPrimitive.Portal
 
 const TooltipContent = React.forwardRef<
