@@ -887,11 +887,11 @@ export const ProductManagement: React.FC = () => {
           </div>
           <div className="flex items-center gap-3 pl-6 ml-2">
             <Popover>
-              <PopoverTrigger render={
+              <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="rounded-xl h-10 gap-2 border-black/10 px-5 text-[#1D1D1F] font-bold">
                   导入/导出 <ChevronDown size={16} className="opacity-50" />
                 </Button>
-              } />
+              </PopoverTrigger>
               <PopoverContent className="w-56 p-2 rounded-2xl shadow-xl z-50 bg-white border border-black/10 flex flex-col gap-1" align="end">
                 <Button variant="ghost" className="w-full justify-start gap-3 h-11 rounded-xl text-[13px] font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]" onClick={exportToExcel}>
                   <Download size={16} /> 导出当前数据
@@ -1159,7 +1159,7 @@ export const ProductManagement: React.FC = () => {
                         </Button>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-[10px] text-[#86868B]">{p.uploadTime?.split('T')[0]}</span>
+                        <span className="text-[10px] text-[#86868B]">{typeof p.uploadTime === 'string' ? p.uploadTime.split('T')[0] : ''}</span>
                         <span className="text-[10px] text-[#FF6B00] font-bold">已上架 {calculateDays(p.uploadTime)} 天</span>
                       </div>
                     </div>
@@ -1300,7 +1300,7 @@ export const ProductManagement: React.FC = () => {
                     </Button>
                   </div>
                   <div className="text-xs text-[#FF6B00] font-bold mt-0.5">
-                    {p.uploadTime?.split('T')[0]} · 已上架 {calculateDays(p.uploadTime)} 天
+                    {typeof p.uploadTime === 'string' ? p.uploadTime.split('T')[0] : ''} · 已上架 {calculateDays(p.uploadTime)} 天
                   </div>
                   <p className="text-xs text-[#86868B] font-bold mt-1">{p.category} {p.scene ? `· ${p.scene}` : ''}</p>
                 </div>

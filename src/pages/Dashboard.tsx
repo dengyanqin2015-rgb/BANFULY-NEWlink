@@ -132,7 +132,9 @@ export const Dashboard: React.FC = () => {
   const filteredPlannings = plannings.filter(p => {
     const pMonthStr = typeof p.month === 'string' ? p.month : '';
     if (filterYear !== 'all' && pMonthStr.split('-')[0] !== filterYear) return false;
-    if (filterMonth !== 'all' && pMonthStr.split('-')[1] !== filterMonth) return false;
+    // Safely check split index 1
+    const pMonthParts = pMonthStr.split('-');
+    if (filterMonth !== 'all' && (pMonthParts.length < 2 || pMonthParts[1] !== filterMonth)) return false;
     if (filterDay !== 'all' && p.uploadTime && new Date(p.uploadTime).getDate().toString().padStart(2, '0') !== filterDay) return false;
     if (filterChannel !== 'all' && p.channel !== filterChannel) return false;
     if (filterShop !== 'all' && p.shop !== filterShop) return false;
@@ -144,7 +146,8 @@ export const Dashboard: React.FC = () => {
   const filteredProducts = products.filter(p => {
     const pMonthStr = typeof p.month === 'string' ? p.month : '';
     if (filterYear !== 'all' && pMonthStr.split('-')[0] !== filterYear) return false;
-    if (filterMonth !== 'all' && pMonthStr.split('-')[1] !== filterMonth) return false;
+    const pMonthParts = pMonthStr.split('-');
+    if (filterMonth !== 'all' && (pMonthParts.length < 2 || pMonthParts[1] !== filterMonth)) return false;
     if (filterDay !== 'all' && p.uploadTime && new Date(p.uploadTime).getDate().toString().padStart(2, '0') !== filterDay) return false;
     if (filterChannel !== 'all' && p.channel !== filterChannel) return false;
     if (filterShop !== 'all' && p.shop !== filterShop) return false;

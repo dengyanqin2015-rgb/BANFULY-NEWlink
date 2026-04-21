@@ -81,9 +81,12 @@ const layoutMindMap = (nodes: any[], globalsDirection: string = 'right') => {
     nodeInfo.set(id, { depth, direction: dir, width });
 
     if (!node.hidden) {
-      const key = `${depth}_${dir}`;
-      const currentMax = maxContentWidthPerDepth.get(key) || 0;
-      maxContentWidthPerDepth.set(key, Math.max(currentMax, width));
+      const children = childrenMap.get(id) || [];
+      if (children.length > 0) {
+        const key = `${depth}_${dir}`;
+        const currentMax = maxContentWidthPerDepth.get(key) || 0;
+        maxContentWidthPerDepth.set(key, Math.max(currentMax, width));
+      }
     }
 
     const children = childrenMap.get(id) || [];
@@ -118,9 +121,13 @@ const layoutMindMap = (nodes: any[], globalsDirection: string = 'right') => {
     const key = `${info?.depth}_${info?.direction}`;
     const levelMaxWidth = maxContentWidthPerDepth.get(key) || 120;
     
-    // Adaptive gap: based on current level's maximum node width
-    // The longest node at this level will have a line length of exactly 80px
-    const gapX = Math.max(minGapX, levelMaxWidth + 80);
+    // To align children correctly at the same X coordinate:
+    // Gap = (Max width of parents / 2) + 80 (standard line) + (Approximate max width of children / 2)
+    // We use a constant for child width approximation to keep layout stable
+    const nextLevelKey = `${(info?.depth || 0) + 1}_${info?.direction}`;
+    const nextLevelMaxWidth = maxContentWidthPerDepth.get(nextLevelKey) || 120;
+    
+    const gapX = Math.max(minGapX, (levelMaxWidth / 2) + 80 + (nextLevelMaxWidth / 2));
 
     let totalH = getSubtreeHeight(id);
     let startY = y - totalH / 2;
