@@ -11,12 +11,15 @@ import { motion } from 'motion/react';
 import { LayoutGrid, List, PieChart, AlertTriangle, Users, Store, Globe, Target, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+import { useSecureCollection } from '../hooks/useSecureCollection';
+import { useSettings } from '../components/SettingsContext';
+
 export const BentoProgress: React.FC = () => {
   const { profile, isAdmin, isSuperAdmin, currentCompanyId } = useAuth();
   const navigate = useNavigate();
-  const [plannings, setPlannings] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [settings, setSettings] = useState<any>({ channels: {} });
+  const { data: plannings } = useSecureCollection('plannings');
+  const { data: products } = useSecureCollection('products');
+  const { settings } = useSettings();
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
   const [aggDimension, setAggDimension] = useState<'category' | 'scene' | 'shop' | 'channel' | 'ownerName'>('category');
   const [previewGroup, setPreviewGroup] = useState<string | null>(null);
@@ -30,73 +33,27 @@ export const BentoProgress: React.FC = () => {
   const [filterParentCategory, setFilterParentCategory] = useState<string>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
 
-  useEffect(() => {
-    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
-    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), (docSnap) => {
-      if (docSnap.exists()) {
-        setSettings(docSnap.data());
-      } else if (currentCompanyId !== 'HQ') {
-        getDoc(doc(db, 'settings', 'global')).then(g => {
-          if (g.exists()) setSettings(g.data() as any);
-        });
-      }
-    });
+  const {
+    uniqueYears,
+    uniqueMonths,
+    uniqueDays,
+    uniqueChannels,
+    uniqueShops,
+    uniqueParentCategories,
+    uniqueOwners,
+    uniqueCategories
+  } = React.useMemo(() => ({
+    uniqueYears: Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean))),
+    uniqueMonths: Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean))),
+    uniqueDays: Array.from(new Set(plannings.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean))),
+    uniqueChannels: Array.from(new Set(plannings.map(p => p.channel).filter(Boolean))),
+    uniqueShops: Array.from(new Set(plannings.map(p => p.shop).filter(Boolean))),
+    uniqueParentCategories: Array.from(new Set(plannings.map(p => p.parentCategory).filter(Boolean))),
+    uniqueOwners: Array.from(new Set(plannings.map(p => p.ownerName).filter(Boolean))),
+    uniqueCategories: Array.from(new Set(plannings.map(p => p.category).filter(Boolean)))
+  }), [plannings]);
 
-    const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
-
-    const qP = query(collection(db, 'plannings'), where('companyId', '==', currentCompanyId));
-    const unsubP = onSnapshot(qP, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      if (!isSuperAdmin) {
-        if (!isAdmin && allowedShops.length === 0) {
-          docs = [];
-        } else if (!isAdmin) {
-          docs = docs.filter(doc => {
-            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-            if (!shopPerm) return false;
-            if (shopPerm.canViewPast) return true;
-            return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
-          });
-        }
-      }
-      setPlannings(docs);
-    });
-
-    const qProd = query(collection(db, 'products'), where('companyId', '==', currentCompanyId));
-    const unsubProd = onSnapshot(qProd, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      if (!isSuperAdmin) {
-        if (!isAdmin && allowedShops.length === 0) {
-          docs = [];
-        } else if (!isAdmin) {
-          docs = docs.filter(doc => {
-            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-            if (!shopPerm) return false;
-            if (shopPerm.canViewPast) return true;
-            return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
-          });
-        }
-      }
-      setProducts(docs);
-    });
-
-    return () => {
-      unsubSettings();
-      unsubP();
-      unsubProd();
-    };
-  }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
-
-  const uniqueYears = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean)));
-  const uniqueMonths = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean)));
-  const uniqueDays = Array.from(new Set(plannings.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean)));
-  const uniqueChannels = Array.from(new Set(plannings.map(p => p.channel).filter(Boolean)));
-  const uniqueShops = Array.from(new Set(plannings.map(p => p.shop).filter(Boolean)));
-  const uniqueParentCategories = Array.from(new Set(plannings.map(p => p.parentCategory).filter(Boolean)));
-  const uniqueOwners = Array.from(new Set(plannings.map(p => p.ownerName).filter(Boolean)));
-  const uniqueCategories = Array.from(new Set(plannings.map(p => p.category).filter(Boolean)));
-
-  const filteredPlannings = plannings.filter(p => {
+  const filteredPlannings = React.useMemo(() => plannings.filter(p => {
     const pYear = typeof p.month === 'string' ? p.month.split('-')[0] : null;
     const pMonth = typeof p.month === 'string' ? p.month.split('-')[1] : null;
     const pDay = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
@@ -109,9 +66,9 @@ export const BentoProgress: React.FC = () => {
     if (filterParentCategory !== 'all' && p.parentCategory !== filterParentCategory) return false;
     if (filterCategory !== 'all' && p.category !== filterCategory) return false;
     return true;
-  });
+  }), [plannings, filterYear, filterMonth, filterDay, filterChannel, filterShop, filterOwner, filterParentCategory, filterCategory]);
 
-  const filteredProducts = products.filter(p => {
+  const filteredProducts = React.useMemo(() => products.filter(p => {
     const pYear = typeof p.month === 'string' ? p.month.split('-')[0] : null;
     const pMonth = typeof p.month === 'string' ? p.month.split('-')[1] : null;
     const pDay = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
@@ -124,16 +81,16 @@ export const BentoProgress: React.FC = () => {
     if (filterParentCategory !== 'all' && p.parentCategory !== filterParentCategory) return false;
     if (filterCategory !== 'all' && p.category !== filterCategory) return false;
     return true;
-  });
+  }), [products, filterYear, filterMonth, filterDay, filterChannel, filterShop, filterOwner, filterParentCategory, filterCategory]);
 
   // Dynamic aggregation logic
-  const getAggregatedGroups = () => {
-    const groups: Record<string, any> = {};
+  const groups = React.useMemo(() => {
+    const grps: Record<string, any> = {};
     
     filteredPlannings.forEach(p => {
       const key = p[aggDimension] || '未分类';
-      if (!groups[key]) {
-        groups[key] = {
+      if (!grps[key]) {
+        grps[key] = {
           name: key,
           planned: 0,
           uploaded: 0,
@@ -142,21 +99,19 @@ export const BentoProgress: React.FC = () => {
           shops: new Set(),
         };
       }
-      groups[key].planned += p.plannedCount || 0;
-      groups[key].owners.add(p.ownerName);
-      groups[key].shops.add(p.shop);
-      if (aggDimension === 'category') groups[key].details.add(p.scene);
-      else if (aggDimension === 'scene') groups[key].details.add(p.category);
+      grps[key].planned += p.plannedCount || 0;
+      grps[key].owners.add(p.ownerName);
+      grps[key].shops.add(p.shop);
+      if (aggDimension === 'category') grps[key].details.add(p.scene);
+      else if (aggDimension === 'scene') grps[key].details.add(p.category);
     });
 
-    Object.values(groups).forEach((group: any) => {
+    Object.values(grps).forEach((group: any) => {
       group.uploaded = filteredProducts.filter(prod => prod[aggDimension] === group.name).length;
     });
 
-    return Object.values(groups).sort((a, b) => b.planned - a.planned);
-  };
-
-  const groups = getAggregatedGroups();
+    return Object.values(grps).sort((a, b) => b.planned - a.planned);
+  }, [filteredPlannings, filteredProducts, aggDimension]);
 
   const now = new Date();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();

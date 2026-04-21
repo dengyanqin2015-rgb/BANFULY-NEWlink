@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc, writeBatch, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
+import { useSettings } from '../components/SettingsContext';
 import { logOperation } from '../lib/logger';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,10 +13,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Plus, Copy, Trash2, MoreHorizontal, Search, LayoutGrid, List, Download, Upload, Edit2, Info, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import * as XLSX from 'xlsx';
-import ExcelJS from 'exceljs';
+import { exportProductsToExcel, downloadImportTemplate, handleProductImport } from '../lib/excel';
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useSecureCollection } from '../hooks/useSecureCollection';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { UploadTimeModal } from '@/components/Product/UploadTimeModal';
+import { AddProductForm } from '@/components/Product/AddProductForm';
 
 const defaultResultLabels: any = {
   '待设置': { color: 'bg-gray-100 text-gray-500' },
@@ -27,24 +31,25 @@ const defaultResultLabels: any = {
 
 export const ProductManagement: React.FC = () => {
   const { profile, isAdmin, isSuperAdmin, currentCompanyId } = useAuth();
+  const { settings } = useSettings();
   const navigate = useNavigate();
   const location = useLocation();
-  const [products, setProducts] = useState<any[]>([]);
-  const [plannings, setPlannings] = useState<any[]>([]);
-  const [settings, setSettings] = useState<any>({ channels: {} });
+  const { data: products } = useSecureCollection('products');
+  const { data: plannings } = useSecureCollection('plannings');
   const [users, setUsers] = useState<any[]>([]);
 
   const allShops = React.useMemo(() => {
     const shops: { name: string, channel: string }[] = [];
-    Object.entries(settings.channels || {}).forEach(([cName, cData]: [string, any]) => {
+    Object.entries(settings?.channels || {}).forEach(([cName, cData]: [string, any]) => {
       (cData.shops || []).forEach((s: any) => {
         shops.push({ name: s.name || s, channel: cName });
       });
     });
     return shops;
-  }, [settings.channels]);
+  }, [settings?.channels]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [filterYear, setFilterYear] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
   const [filterDay, setFilterDay] = useState('all');
@@ -68,6 +73,8 @@ export const ProductManagement: React.FC = () => {
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; title?: string; message?: string; onConfirm: () => void } | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
   const calculateDays = (dateStr: string) => {
     if (!dateStr) return 0;
@@ -89,6 +96,13 @@ export const ProductManagement: React.FC = () => {
     assignedOwner: '', // New field for assigned owner email
     month: '', // Added month
   });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     if (location.state?.action === 'bind' && location.state?.planning) {
@@ -126,71 +140,12 @@ export const ProductManagement: React.FC = () => {
   }, [location.state, navigate]);
 
   useEffect(() => {
-    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
-    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), (docSnap) => {
-      if (docSnap.exists()) {
-        setSettings(docSnap.data());
-      } else if (currentCompanyId !== 'HQ') {
-        // Fallback to global if branch settings don't exist yet
-        getDoc(doc(db, 'settings', 'global')).then(g => {
-          if (g.exists()) setSettings(g.data() as any);
-        });
-      }
-    });
-    
     // Add missing users subscription
     const unsubUsers = onSnapshot(query(collection(db, 'users'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
-
-    const qP = query(collection(db, 'plannings'), where('companyId', '==', currentCompanyId));
-
-    const unsubP = onSnapshot(qP, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      if (!isSuperAdmin) {
-        if (!isAdmin && allowedShops.length === 0) {
-          docs = [];
-        } else if (!isAdmin) {
-          docs = docs.filter(doc => {
-            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-            if (!shopPerm) return false;
-            if (shopPerm.canViewPast) return true;
-            const docDate = new Date(doc.createdAt || 0);
-            const takeoverDate = new Date(shopPerm.takeoverTime);
-            return docDate >= takeoverDate;
-          });
-        }
-      }
-      setPlannings(docs);
-    });
-
-    const qProd = query(collection(db, 'products'), where('companyId', '==', currentCompanyId));
-
-    const unsubProd = onSnapshot(qProd, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      if (!isSuperAdmin) {
-        if (!isAdmin && allowedShops.length === 0) {
-          docs = [];
-        } else if (!isAdmin) {
-          docs = docs.filter(doc => {
-            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-            if (!shopPerm) return false;
-            if (shopPerm.canViewPast) return true;
-            const docDate = new Date(doc.uploadTime || doc.createdAt || 0); // User considers uploadTime real time
-            const takeoverDate = new Date(shopPerm.takeoverTime);
-            return docDate >= takeoverDate;
-          });
-        }
-      }
-      setProducts(docs);
-    });
-
     return () => {
-      unsubSettings();
-      unsubP();
-      unsubProd();
       unsubUsers();
     };
   }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
@@ -205,7 +160,7 @@ export const ProductManagement: React.FC = () => {
     
     if (productIds.length === 0) return toast.error('请输入有效的商品 ID');
 
-    const channelSop = settings.channels[newProduct.channel]?.sop || [];
+    const channelSop = settings?.channels?.[newProduct.channel]?.sop || [];
     const initialSteps: any = {};
     channelSop.forEach((step: string) => {
       initialSteps[step] = false;
@@ -228,7 +183,7 @@ export const ProductManagement: React.FC = () => {
           assignedOwner: newProduct.assignedOwner,
           month: newProduct.month || new Date().toISOString().slice(0, 7),
           steps: initialSteps,
-          result: settings.linkJudgments?.[0]?.label || '待设置',
+          result: settings?.linkJudgments?.[0]?.label || '待设置',
           createdAt: new Date().toISOString(),
         });
       });
@@ -386,233 +341,19 @@ export const ProductManagement: React.FC = () => {
     }
   };
 
-  const exportToExcel = () => {
-    // Generate headers including dynamic SOPs
-    const allExpectedSteps = new Set<string>();
-    if (settings.channels) {
-      Object.values(settings.channels).forEach((channelData: any) => {
-        if (channelData.sop && Array.isArray(channelData.sop)) {
-          channelData.sop.forEach((step: string) => allExpectedSteps.add(step));
-        }
-      });
-    }
-    const sopColumns = Array.from(allExpectedSteps);
-
-    const data = enrichedProducts.map(p => {
-      const row: any = {
-        '商品 ID': p.productId,
-        'SKU': p.sku || '',
-        '商机来源': p.source || '',
-        '品类': p.category,
-        '场景': p.scene,
-        '核心关键词': p.keywords || '',
-        '渠道': p.channel,
-        '店铺': p.shop,
-        '负责人': p.assignedOwner || p.ownerName,
-        '月份': p.month || '',
-        '结果': p.result || '待设置',
-        '上架时间': p.uploadTime
-      };
-      
-      // Add SOP columns
-      sopColumns.forEach(step => {
-        row[step] = p.steps && p.steps[step] ? '是' : '否';
-      });
-
-      return row;
-    });
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "导出数据");
-    XLSX.writeFile(workbook, "product_export.xlsx");
-    toast.success('导出成功');
+  const exportToExcel = (mode: 'selected' | 'current_page' | 'filtered' | 'all' = 'filtered') => {
+    exportProductsToExcel(mode, settings, selectedIds, enrichedProducts, paginatedProducts, filteredProducts, currentPage);
   };
 
-  const downloadImportTemplate = async () => {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('导入模板');
-
-    // 定义表头
-    const columns = [
-      { header: '商品 ID (必填)', key: 'productId', width: 20 },
-      { header: '商机来源', key: 'source', width: 15 },
-      { header: '品类', key: 'category', width: 15 },
-      { header: '场景', key: 'scene', width: 15 },
-      { header: '核心关键词', key: 'keywords', width: 20 },
-      { header: '渠道 (必填)', key: 'channel', width: 15 },
-      { header: '店铺 (必填)', key: 'shop', width: 15 },
-      { header: '月份 (例如: 2024-05)', key: 'month', width: 20 },
-    ];
-
-    worksheet.columns = columns;
-
-    // 设置表头样式
-    worksheet.getRow(1).font = { bold: true };
-    worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
-
-    // 获取下拉框数据源
-    const sources = settings.opportunitySources || ['爆款复刻', '竞品监控', '趋势发现', '站内商机'];
-    const channelData: { channel: string; shop: string }[] = [];
-    const uniqueChannels = Object.keys(settings.channels || []);
-    
-    uniqueChannels.forEach(channelName => {
-      const channel = settings.channels[channelName];
-      if (channel.shops) {
-        channel.shops.forEach((s: any) => {
-          const shopName = typeof s === 'string' ? s : s.name;
-          if (shopName) {
-            channelData.push({ channel: channelName, shop: shopName });
-          }
-        });
-      }
-    });
-
-    const allShops = Array.from(new Set(channelData.map(d => d.shop)));
-
-    const firstChannel = uniqueChannels[0] || '拼多多';
-    const firstShop = channelData.find(d => d.channel === firstChannel)?.shop || '旗舰店';
-
-    const monthOptions = [];
-    const now = new Date();
-    for (let i = 0; i < 6; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, '0');
-      monthOptions.push(`${year}-${month}`);
-    }
-
-    worksheet.addRow({
-      productId: 'P20241018001',
-      source: sources[0] || '爆款复刻',
-      category: '女装/连衣裙',
-      scene: '日常通勤',
-      keywords: '法式, 碎花',
-      channel: firstChannel,
-      shop: firstShop,
-      month: monthOptions[0]
-    });
-
-    // 为各列添加下拉框验证 (限制 1000 行)
-    for (let i = 2; i <= 1000; i++) {
-      if (sources.length > 0) {
-        worksheet.getCell(`B${i}`).dataValidation = {
-          type: 'list',
-          allowBlank: true,
-          formulae: [`"${sources.join(',')}"`],
-        };
-      }
-      
-      if (uniqueChannels.length > 0) {
-        worksheet.getCell(`F${i}`).dataValidation = {
-          type: 'list',
-          allowBlank: true,
-          formulae: [`"${uniqueChannels.join(',')}"`],
-        };
-      }
-      
-      if (allShops.length > 0) {
-        worksheet.getCell(`G${i}`).dataValidation = {
-          type: 'list',
-          allowBlank: true,
-          formulae: [`"${allShops.join(',')}"`],
-        };
-      }
-
-      if (monthOptions.length > 0) {
-        worksheet.getCell(`H${i}`).dataValidation = {
-          type: 'list',
-          allowBlank: true,
-          formulae: [`"${monthOptions.join(',')}"`],
-        };
-      }
-    }
-
-    // 导出文件
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = '导入模板.xlsx';
-    anchor.click();
-    window.URL.revokeObjectURL(url);
-    
-    toast.success('模板下载成功');
+  const handleDownloadTemplate = () => {
+    downloadImportTemplate(settings);
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      const bstr = evt.target?.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws);
-      
-      const allExpectedSteps = new Set<string>();
-      if (settings.channels) {
-        Object.values(settings.channels).forEach((channelData: any) => {
-          if (channelData.sop && Array.isArray(channelData.sop)) {
-            channelData.sop.forEach((step: string) => allExpectedSteps.add(step));
-          }
-        });
-      }
-      const sopKeys = Array.from(allExpectedSteps);
-
-      let count = 0;
-      const importedDocIds: string[] = [];
-      for (const item of data as any[]) {
-        try {
-          const rawId = String(item['商品 ID (必填)'] || item['商品 ID'] || '');
-          const rawChannel = item['渠道 (必填)'] || item['渠道'];
-          const rawShop = item['店铺 (必填)'] || item['店铺'];
-          
-          if (!rawId || rawId.trim() === '') continue;
-
-          const channelSop = settings.channels?.[rawChannel]?.sop || [];
-          
-          const initialSteps: any = {};
-          channelSop.forEach((step: string) => {
-            initialSteps[step] = false;
-          });
-
-          // Map SOP fields from the row
-          sopKeys.forEach(step => {
-             if (item[step] !== undefined && channelSop.includes(step)) {
-                const val = String(item[step]).trim().toUpperCase();
-                initialSteps[step] = (val === '是' || val === 'TRUE' || val === '1' || val === '完成' || val === 'Y' || val === 'YES');
-             }
-          });
-
-          const docRef = await addDoc(collection(db, 'products'), {
-            productId: rawId.trim(),
-            sku: String(item['SKU'] || ''),
-            category: item['品类'] || '',
-            scene: item['场景'] || '',
-            keywords: item['核心关键词'] || '',
-            source: item['商机来源'] || item['来源'] || '',
-            channel: rawChannel || '',
-            shop: rawShop || '',
-            month: item['月份 (例如: 2024-05)'] || item['月份'] || new Date().toISOString().slice(0, 7),
-            assignedOwner: item['负责人 (必填)'] || item['负责人'] || profile.email,
-            ownerId: profile.uid,
-            ownerName: profile.displayName || profile.email,
-            companyId: currentCompanyId,
-            steps: initialSteps,
-            notes: item['备注'] || '',
-            result: settings.linkJudgments?.[0]?.label || '待设置',
-            createdAt: new Date().toISOString(),
-            uploadTime: new Date().toISOString()
-          });
-          importedDocIds.push(docRef.id);
-          await logOperation('CREATE', 'PRODUCT', docRef.id, `导入商品链接: ${rawId}`, profile);
-          count++;
-        } catch (err) {}
-      }
-      toast.success(`成功导入 ${count} 条数据`);
+    
+    handleProductImport(file, settings, profile, currentCompanyId, (importedDocIds) => {
       if (fileInputRef.current) fileInputRef.current.value = '';
       if (importedDocIds.length > 0) {
         setUploadTimeModal({
@@ -622,8 +363,7 @@ export const ProductManagement: React.FC = () => {
           uploadTimeSet: false
         });
       }
-    };
-    reader.readAsBinaryString(file);
+    });
   };
 
   const submitUploadTime = async (date: string) => {
@@ -645,11 +385,37 @@ export const ProductManagement: React.FC = () => {
     setUploadTimeModal({ isOpen: false, productIds: [], defaultDate: '', uploadTimeSet: false });
   };
 
+  const userMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    users.forEach(u => {
+      const name = u.displayName || u.username || (u.email ? u.email.split('@')[0] : '未知');
+      if (u.email) map[u.email] = name;
+      if (u.displayName) map[u.displayName] = name;
+      if (u.username) map[u.username] = name;
+    });
+    return map;
+  }, [users]);
+
+  const getUserDisplayName = (emailOrName: string) => {
+    if (!emailOrName) return '未知';
+    return userMap[emailOrName] || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
+  };
+
   const enrichedProducts = useMemo(() => {
     return products.map(p => {
       const relatedPlanning = p.planningId ? plannings.find(plan => plan.id === p.planningId) : null;
+      const pMonth = typeof p.month === 'string' ? p.month : '';
+      const pYearPart = pMonth.split('-')[0] || null;
+      const pMonthPart = pMonth.split('-')[1] || null;
+      const pDayPart = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
+      const ownerName = getUserDisplayName(p.assignedOwner || p.ownerName);
+
       return {
         ...p,
+        pYear: pYearPart,
+        pMonth: pMonthPart,
+        pDay: pDayPart,
+        displayName: ownerName,
         parentCategory: relatedPlanning?.parentCategory || p.parentCategory || '',
         source: relatedPlanning?.source || p.source || '',
         category: relatedPlanning?.category || p.category || '',
@@ -657,61 +423,78 @@ export const ProductManagement: React.FC = () => {
         keywords: relatedPlanning?.keywords || p.keywords || ''
       };
     });
-  }, [products, plannings]);
+  }, [products, plannings, userMap]);
 
-  const uniqueYears = Array.from(new Set(enrichedProducts.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean))).sort().reverse() as string[];
-  const uniqueMonths = Array.from(new Set(enrichedProducts.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean))).sort().reverse() as string[];
-  const uniqueDays = Array.from(new Set(enrichedProducts.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean))).sort().reverse() as string[];
-  const uniqueChannels = Array.from(new Set(enrichedProducts.map(p => p.channel).filter(Boolean))) as string[];
-  const uniqueShops = Array.from(new Set(enrichedProducts.map(p => p.shop).filter(Boolean))) as string[];
-  const uniqueParentCategories = Array.from(new Set(enrichedProducts.map(p => p.parentCategory).filter(Boolean))) as string[];
-  const uniqueCategories = Array.from(new Set(enrichedProducts.map(p => p.category).filter(Boolean))) as string[];
-  const uniqueSources = Array.from(new Set([
+  const uniqueYears = useMemo(() => Array.from(new Set(enrichedProducts.map(p => p.pYear).filter(Boolean))).sort().reverse() as string[], [enrichedProducts]);
+  const uniqueMonths = useMemo(() => Array.from(new Set(enrichedProducts.map(p => p.pMonth).filter(Boolean))).sort().reverse() as string[], [enrichedProducts]);
+  const allDays = useMemo(() => Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0')), []);
+  const uniqueChannels = useMemo(() => Array.from(new Set(enrichedProducts.map(p => p.channel).filter(Boolean))) as string[], [enrichedProducts]);
+  const uniqueShops = useMemo(() => Array.from(new Set(enrichedProducts.map(p => p.shop).filter(Boolean))) as string[], [enrichedProducts]);
+  const uniqueParentCategories = useMemo(() => Array.from(new Set(enrichedProducts.map(p => p.parentCategory).filter(Boolean))) as string[], [enrichedProducts]);
+  const uniqueCategories = useMemo(() => Array.from(new Set(enrichedProducts.map(p => p.category).filter(Boolean))) as string[], [enrichedProducts]);
+  const uniqueSources = useMemo(() => Array.from(new Set([
     ...(settings.opportunitySources || []),
     ...enrichedProducts.map(p => p.source).filter(Boolean)
-  ])) as string[];
+  ])) as string[], [enrichedProducts, settings.opportunitySources]);
 
-  const getUserDisplayName = (emailOrName: string) => {
-    if (!emailOrName) return '未知';
-    const user = users.find(u => u.email === emailOrName || u.displayName === emailOrName || u.username === emailOrName);
-    return user?.displayName || user?.username || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
-  };
+  const uniqueOwners = useMemo(() => Array.from(new Set(enrichedProducts.map(p => p.displayName).filter(Boolean))) as string[], [enrichedProducts]);
 
-  const uniqueOwners = Array.from(new Set(enrichedProducts.map(p => getUserDisplayName(p.assignedOwner || p.ownerName)).filter(Boolean))) as string[];
+  const filteredProducts = useMemo(() => {
+    const startTimestamp = dateRange.start ? new Date(dateRange.start).getTime() : null;
+    const endTimestamp = dateRange.end ? new Date(dateRange.end + 'T23:59:59').getTime() : null;
 
-  const filteredProducts = enrichedProducts.filter(p => {
-    const matchesSearch = p.productId?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const pYear = typeof p.month === 'string' ? p.month.split('-')[0] : null;
-    const pMonth = typeof p.month === 'string' ? p.month.split('-')[1] : null;
-    const pDay = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
+    return enrichedProducts.filter(p => {
+      const matchesSearch = !debouncedSearchTerm || p.productId?.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
+      
+      const matchesYear = filterYear === 'all' || p.pYear === filterYear;
+      const matchesMonth = filterMonth === 'all' || p.pMonth === filterMonth;
+      const matchesDay = filterDay === 'all' || p.pDay === filterDay;
+      
+      let matchesDateRange = true;
+      if (p.uploadTime) {
+        const pTimestamp = new Date(p.uploadTime).getTime();
+        if (startTimestamp && pTimestamp < startTimestamp) matchesDateRange = false;
+        if (endTimestamp && pTimestamp > endTimestamp) matchesDateRange = false;
+      } else if (startTimestamp || endTimestamp) {
+        matchesDateRange = false;
+      }
 
-    const matchesYear = filterYear === 'all' || pYear === filterYear;
-    const matchesMonth = filterMonth === 'all' || pMonth === filterMonth;
-    const matchesDay = filterDay === 'all' || pDay === filterDay;
-    
-    let matchesDateRange = true;
-    if (dateRange.start && p.uploadTime) {
-      if (new Date(p.uploadTime) < new Date(dateRange.start)) matchesDateRange = false;
-    }
-    if (dateRange.end && p.uploadTime) {
-      if (new Date(p.uploadTime) > new Date(dateRange.end + 'T23:59:59')) matchesDateRange = false;
-    }
+      const matchesChannel = filterChannel === 'all' || p.channel === filterChannel;
+      const matchesShop = filterShop === 'all' || p.shop === filterShop;
+      const matchesOwner = filterOwner === 'all' || p.displayName === filterOwner;
+      const matchesParentCategory = filterParentCategory === 'all' || p.parentCategory === filterParentCategory;
+      const matchesCategory = filterCategory === 'all' || p.category === filterCategory;
+      const matchesSource = filterSource === 'all' || p.source === filterSource;
+      
+      let matchesSop = true;
+      if (filterSopStep !== 'all') {
+        matchesSop = p.steps && p.steps[filterSopStep] === true;
+      }
+      
+      return matchesSearch && matchesYear && matchesMonth && matchesDay && matchesDateRange && matchesChannel && matchesShop && matchesOwner && matchesParentCategory && matchesCategory && matchesSource && matchesSop;
+    }).sort((a, b) => {
+      // Sort by Year, Month, then Day ascending
+      if (a.pYear !== b.pYear) return (a.pYear || '').localeCompare(b.pYear || '');
+      if (a.pMonth !== b.pMonth) return (a.pMonth || '').localeCompare(b.pMonth || '');
+      // Ensure day is compared as string/number safely, forcing 2-digit format if needed
+      const dayA = (a.pDay || '01').padStart(2, '0');
+      const dayB = (b.pDay || '01').padStart(2, '0');
+      if (dayA !== dayB) return dayA.localeCompare(dayB);
+      const dateA = a.uploadTime ? new Date(a.uploadTime).getTime() : 0;
+      const dateB = b.uploadTime ? new Date(b.uploadTime).getTime() : 0;
+      return dateA - dateB;
+    });
+  }, [enrichedProducts, debouncedSearchTerm, filterYear, filterMonth, filterDay, dateRange, filterChannel, filterShop, filterOwner, filterParentCategory, filterCategory, filterSource, filterSopStep]);
 
-    const matchesChannel = filterChannel === 'all' || p.channel === filterChannel;
-    const matchesShop = filterShop === 'all' || p.shop === filterShop;
-    const matchesOwner = filterOwner === 'all' || getUserDisplayName(p.assignedOwner || p.ownerName) === filterOwner;
-    const matchesParentCategory = filterParentCategory === 'all' || p.parentCategory === filterParentCategory;
-    const matchesCategory = filterCategory === 'all' || p.category === filterCategory;
-    const matchesSource = filterSource === 'all' || p.source === filterSource;
-    
-    let matchesSop = true;
-    if (filterSopStep !== 'all') {
-      matchesSop = p.steps && p.steps[filterSopStep] === true;
-    }
-    
-    return matchesSearch && matchesYear && matchesMonth && matchesDay && matchesDateRange && matchesChannel && matchesShop && matchesOwner && matchesParentCategory && matchesCategory && matchesSource && matchesSop;
-  });
+  const paginatedProducts = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredProducts.slice(start, start + pageSize);
+  }, [filteredProducts, currentPage, pageSize]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchTerm, filterYear, filterMonth, filterDay, dateRange, filterChannel, filterShop, filterOwner, filterParentCategory, filterCategory, filterSource, filterSopStep]);
 
   const judgments = settings.linkJudgments || [
     { label: '待设置', definition: '尚未进行链接判定的商品', color: '#86868B' },
@@ -750,65 +533,33 @@ export const ProductManagement: React.FC = () => {
             </div>
           </div>
           <div className="flex bg-[#E3E3E8] p-1 rounded-xl gap-1 overflow-x-auto custom-scrollbar flex-nowrap shrink-0 max-w-full">
-            <Popover>
-               <PopoverTrigger className="flex items-center h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] shadow-none w-auto cursor-pointer focus:bg-white transition-colors">
-                  日期 <ChevronDown size={14} className="ml-1 opacity-50" />
-               </PopoverTrigger>
-               <PopoverContent className="w-auto p-5 rounded-2xl shadow-xl z-50 bg-white border border-black/10 flex flex-col gap-4" align="start">
-                  <div>
-                     <p className="text-xs font-bold text-[#1D1D1F] mb-2">按区间筛选</p>
-                     <div className="flex items-center gap-2">
-                        <input 
-                           type="date" 
-                           value={dateRange.start}
-                           onChange={(e) => setDateRange(prev => ({...prev, start: e.target.value}))}
-                           className="h-9 px-3 rounded-xl border border-black/10 text-xs font-bold text-[#1D1D1F] w-[130px] focus:ring-2 focus:ring-[#FF6B00]/30 outline-none"
-                           title="开始日期"
-                        />
-                        <span className="text-[#86868B] text-xs">-</span>
-                        <input 
-                           type="date" 
-                           value={dateRange.end}
-                           onChange={(e) => setDateRange(prev => ({...prev, end: e.target.value}))}
-                           className="h-9 px-3 rounded-xl border border-black/10 text-xs font-bold text-[#1D1D1F] w-[130px] focus:ring-2 focus:ring-[#FF6B00]/30 outline-none"
-                           title="结束日期"
-                        />
-                     </div>
-                  </div>
-                  <div>
-                     <p className="text-xs font-bold text-[#1D1D1F] mb-2 border-t border-black/5 pt-4">按年/月/日精准筛选</p>
-                     <div className="flex items-center gap-2">
-                        <Select value={filterYear} onValueChange={setFilterYear}>
-                           <SelectTrigger className="h-9 flex-1 rounded-xl border border-black/10 text-xs font-bold text-[#1D1D1F] shadow-none focus:ring-[#FF6B00]/30">
-                              <SelectValue>{filterYear === 'all' ? '全部年' : `${filterYear}年`}</SelectValue>
-                           </SelectTrigger>
-                           <SelectContent className="rounded-xl">
-                              <SelectItem value="all">全部年</SelectItem>
-                              {uniqueYears.map(y => <SelectItem key={y} value={y}>{y}年</SelectItem>)}
-                           </SelectContent>
-                        </Select>
-                        <Select value={filterMonth} onValueChange={setFilterMonth}>
-                           <SelectTrigger className="h-9 flex-1 rounded-xl border border-black/10 text-xs font-bold text-[#1D1D1F] shadow-none focus:ring-[#FF6B00]/30">
-                              <SelectValue>{filterMonth === 'all' ? '全部月' : `${filterMonth}月`}</SelectValue>
-                           </SelectTrigger>
-                           <SelectContent className="rounded-xl">
-                              <SelectItem value="all">全部月</SelectItem>
-                              {uniqueMonths.map(m => <SelectItem key={m} value={m}>{m}月</SelectItem>)}
-                           </SelectContent>
-                        </Select>
-                        <Select value={filterDay} onValueChange={setFilterDay}>
-                           <SelectTrigger className="h-9 flex-1 rounded-xl border border-black/10 text-xs font-bold text-[#1D1D1F] shadow-none focus:ring-[#FF6B00]/30">
-                              <SelectValue>{filterDay === 'all' ? '全部日' : `${filterDay}日`}</SelectValue>
-                           </SelectTrigger>
-                           <SelectContent className="rounded-xl">
-                              <SelectItem value="all">全部日</SelectItem>
-                              {uniqueDays.map(d => <SelectItem key={d} value={d}>{d}日</SelectItem>)}
-                           </SelectContent>
-                        </Select>
-                     </div>
-                  </div>
-               </PopoverContent>
-            </Popover>
+            <Select value={filterYear} onValueChange={setFilterYear}>
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+                <SelectValue>{filterYear === 'all' ? '全部年' : `${filterYear}年`}</SelectValue>
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="all">全部年</SelectItem>
+                {uniqueYears.map(y => <SelectItem key={y} value={y}>{y}年</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterMonth} onValueChange={setFilterMonth}>
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+                <SelectValue>{filterMonth === 'all' ? '全部月' : `${filterMonth}月`}</SelectValue>
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="all">全部月</SelectItem>
+                {uniqueMonths.map(m => <SelectItem key={m} value={m}>{m}月</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={filterDay} onValueChange={setFilterDay}>
+              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
+                <SelectValue>{filterDay === 'all' ? '全部日' : `${filterDay}日`}</SelectValue>
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="all">全部日</SelectItem>
+                {allDays.map(d => <SelectItem key={d} value={d}>{d}日</SelectItem>)}
+              </SelectContent>
+            </Select>
             <Select value={filterSource} onValueChange={setFilterSource}>
               <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterSource === 'all' ? '商机来源' : filterSource}</SelectValue>
@@ -893,15 +644,27 @@ export const ProductManagement: React.FC = () => {
                 </Button>
               } />
               <PopoverContent className="w-56 p-2 rounded-2xl shadow-xl z-50 bg-white border border-black/10 flex flex-col gap-1" align="end">
-                <Button variant="ghost" className="w-full justify-start gap-3 h-11 rounded-xl text-[13px] font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]" onClick={exportToExcel}>
-                  <Download size={16} /> 导出当前数据
+                <div className="px-3 py-1.5">
+                  <p className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">数据导出</p>
+                </div>
+                <Button variant="ghost" className="w-full justify-start gap-3 h-10 rounded-xl text-[13px] font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]" onClick={() => exportToExcel('selected')}>
+                  <Download size={16} /> 导出勾选内容 {selectedIds.length > 0 && `(${selectedIds.length})`}
+                </Button>
+                <Button variant="ghost" className="w-full justify-start gap-3 h-10 rounded-xl text-[13px] font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]" onClick={() => exportToExcel('current_page')}>
+                  <Download size={16} /> 导出当前页
+                </Button>
+                <Button variant="ghost" className="w-full justify-start gap-3 h-10 rounded-xl text-[13px] font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]" onClick={() => exportToExcel('filtered')}>
+                  <Download size={16} /> 导出筛选条件
+                </Button>
+                <Button variant="ghost" className="w-full justify-start gap-3 h-10 rounded-xl text-[13px] font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]" onClick={() => exportToExcel('all')}>
+                  <Download size={16} /> 导出全部数据
                 </Button>
                 <div className="h-px bg-black/5 my-1 mx-2" />
-                <Button variant="ghost" className="w-full justify-start gap-3 h-11 rounded-xl text-[13px] font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]" onClick={downloadImportTemplate}>
+                <Button variant="ghost" className="w-full justify-start gap-3 h-10 rounded-xl text-[13px] font-bold text-[#1D1D1F] hover:bg-[#F5F5F7]" onClick={handleDownloadTemplate}>
                   <Download size={16} /> 下载导入模板
                 </Button>
                 <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx, .xls" onChange={handleImport} />
-                <Button variant="ghost" className="w-full justify-start gap-3 h-11 rounded-xl text-[13px] font-bold text-[#FF6B00] hover:bg-[#FFF0E5]" onClick={() => fileInputRef.current?.click()}>
+                <Button variant="ghost" className="w-full justify-start gap-3 h-10 rounded-xl text-[13px] font-bold text-[#FF6B00] hover:bg-[#FFF0E5]" onClick={() => fileInputRef.current?.click()}>
                   <Upload size={16} /> 上传表格导入
                 </Button>
               </PopoverContent>
@@ -1013,99 +776,16 @@ export const ProductManagement: React.FC = () => {
         );
       })()}
       {isAddOpen && (
-        <div className="bg-white p-6 rounded-[24px] border border-[#FF6B00]/20 shadow-xl shadow-[#FF6B00]/5 animate-in fade-in slide-in-from-top-4">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <div className="space-y-2 md:col-span-5">
-              <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">商品 ID (支持多个，用空格、逗号或换行分隔)</label>
-              <textarea 
-                placeholder="输入商品 ID..." 
-                className="w-full rounded-xl border border-black/10 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6B00]/20 resize-none h-20" 
-                value={newProduct.productId} 
-                onChange={e => setNewProduct({...newProduct, productId: e.target.value})} 
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">关联规划</label>
-              <Select value={newProduct.planningId || ''} onValueChange={val => {
-                const p = plannings.find(pl => pl.id === val);
-                if (p) {
-                  setNewProduct({...newProduct, planningId: val, category: p.category, scene: p.scene, keywords: p.keywords, channel: p.channel, shop: p.shop, month: p.month});
-                }
-              }}>
-                <SelectTrigger className="rounded-xl border-black/10 h-10">
-                  <SelectValue placeholder="选择规划">
-                    {newProduct.planningId && plannings.find((p) => p.id === newProduct.planningId)
-                      ? (() => {
-                          const p = plannings.find((pl) => pl.id === newProduct.planningId);
-                          return p ? `${p.category} (${p.keywords}) - ${p.channel}` : newProduct.planningId;
-                        })()
-                      : "选择规划"}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  {plannings
-                    .filter(p => !newProduct.channel || p.channel === newProduct.channel)
-                    .map(p => (
-                      <SelectItem key={p.id} value={p.id}>{p.category} ({p.keywords}) - {p.channel}</SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">渠道</label>
-              <Select value={newProduct.channel || ''} onValueChange={val => setNewProduct({...newProduct, channel: val, shop: '', planningId: ''})}>
-                <SelectTrigger className="rounded-xl border-black/10 h-10">
-                  <SelectValue placeholder="选择渠道" />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  {Object.keys(settings.channels || {}).map(c => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">店铺</label>
-              <Select value={newProduct.shop || ''} onValueChange={val => {
-                const selectedShop = allShops.find(s => s.name === val);
-                const owners = users.filter(u => u.role !== 'rejected' && (u.role === 'admin' || (u.permissions && u.permissions.some((p: any) => p.shop === val))));
-                setNewProduct({
-                  ...newProduct, 
-                  shop: val, 
-                  channel: selectedShop ? selectedShop.channel : newProduct.channel,
-                  assignedOwner: owners.length === 1 ? owners[0].email : ''
-                });
-              }}>
-                <SelectTrigger className="rounded-xl border-black/10 h-10">
-                  <SelectValue placeholder="选择店铺" />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  {(newProduct.channel ? allShops.filter(s => s.channel === newProduct.channel) : allShops).map((s, i) => (
-                    <SelectItem key={`${s.name}-${i}`} value={s.name}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">负责人</label>
-              <Select value={newProduct.assignedOwner || ''} onValueChange={val => setNewProduct({...newProduct, assignedOwner: val})} disabled={!newProduct.shop}>
-                <SelectTrigger className="rounded-xl border-black/10 h-10">
-                  <span className={cn("text-sm", !newProduct.assignedOwner && "text-muted-foreground")}>
-                    {newProduct.assignedOwner ? getUserDisplayName(newProduct.assignedOwner) : (newProduct.shop ? "选择负责人" : "请先选择店铺")}
-                  </span>
-                </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  {users.filter(u => u.role !== 'rejected' && (u.role === 'admin' || (u.permissions && u.permissions.some((p: any) => p.shop === newProduct.shop)))).map(o => (
-                    <SelectItem key={o.id} value={o.email}>{getUserDisplayName(o.email)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-end">
-              <Button onClick={handleAddProduct} className="w-full bg-[#1D1D1F] text-white rounded-xl h-10 font-bold">确认绑定</Button>
-            </div>
-          </div>
-        </div>
+        <AddProductForm
+          newProduct={newProduct}
+          setNewProduct={setNewProduct}
+          plannings={plannings}
+          settings={settings}
+          allShops={allShops}
+          users={users}
+          getUserDisplayName={getUserDisplayName}
+          handleAddProduct={handleAddProduct}
+        />
       )}
 
       {viewMode === 'table' ? (
@@ -1131,7 +811,7 @@ export const ProductManagement: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredProducts.map((p) => (
+              {paginatedProducts.map((p) => (
                 <TableRow 
                   key={p.id} 
                   onDoubleClick={() => {
@@ -1177,7 +857,7 @@ export const ProductManagement: React.FC = () => {
                     </div>
                   </TableCell>
                   <TableCell className="sticky left-[400px] z-10 bg-white group-hover:bg-[#fafafc] shadow-[1px_0_0_0_rgba(0,0,0,0.05)] min-w-[80px]">
-                    <span className="text-xs text-[#1D1D1F] font-medium">{getUserDisplayName(p.assignedOwner || p.ownerName)}</span>
+                    <span className="text-xs text-[#1D1D1F] font-medium">{p.displayName}</span>
                   </TableCell>
                   <TableCell className="sticky left-[480px] z-10 bg-white group-hover:bg-[#fafafc] shadow-[1px_0_0_0_rgba(0,0,0,0.05)] min-w-[120px]">
                     <div className="flex flex-col gap-0.5">
@@ -1187,7 +867,7 @@ export const ProductManagement: React.FC = () => {
                   </TableCell>
                   <TableCell className="min-w-[400px]">
                     <div className="flex flex-wrap gap-x-5 gap-y-3">
-                      {(settings.channels[p.channel]?.sop || []).map((step: string) => (
+                      {(settings?.channels?.[p.channel]?.sop || []).map((step: string) => (
                         <div key={step} className="flex flex-col items-center gap-1.5 break-inside-avoid">
                           <span className={cn("text-[11px] font-bold whitespace-nowrap", p.steps?.[step] ? "text-[#1D1D1F]" : "text-[#86868B]")}>{step}</span>
                           <Checkbox 
@@ -1279,7 +959,7 @@ export const ProductManagement: React.FC = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredProducts.map(p => (
+          {paginatedProducts.map(p => (
             <div 
               key={p.id} 
               onDoubleClick={() => {
@@ -1327,10 +1007,10 @@ export const ProductManagement: React.FC = () => {
               <div className="flex flex-wrap gap-2 mb-4">
                 <span className="text-xs px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{p.channel}</span>
                 <span className="text-xs px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{p.shop}</span>
-                <span className="text-xs px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{getUserDisplayName(p.assignedOwner || p.ownerName)}</span>
+                <span className="text-xs px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{p.displayName}</span>
               </div>
               <div className="grid grid-cols-2 gap-2 pt-4 border-t border-black/5">
-                {(settings.channels[p.channel]?.sop || []).map((step: string) => (
+                {(settings?.channels?.[p.channel]?.sop || []).map((step: string) => (
                   <div key={step} className="flex items-center gap-2">
                     <Checkbox 
                       checked={!!p.steps?.[step]} 
@@ -1356,69 +1036,135 @@ export const ProductManagement: React.FC = () => {
         </div>
       )}
 
-      {/* Upload Time Override Modal */}
-      {uploadTimeModal.isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white p-6 rounded-3xl max-w-md w-full shadow-2xl space-y-6">
-            <div>
-              <h2 className="text-xl font-bold text-[#1D1D1F]">重设上架时间</h2>
-              <p className="text-sm text-[#86868B] mt-2">
-                您新增了 {uploadTimeModal.productIds.length} 个链接。如果您上传的链接已经实际上架过一段时间，请在这里统一将其修改为真实的初始上架时间（如果不填则默认为今天）。
-              </p>
-            </div>
-            
-            <div className="space-y-2 relative isolate">
-              <label className="text-xs font-bold text-[#86868B]">选择真实上架日期</label>
-              <Input 
-                type="date" 
-                value={uploadTimeModal.defaultDate}
-                onChange={(e) => setUploadTimeModal(prev => ({...prev, defaultDate: e.target.value}))}
-                className="h-12 rounded-xl"
+      {/* Pagination & Status Footer */}
+      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-[24px] border border-black/5 shadow-sm gap-4">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 text-xs font-bold text-[#86868B]">
+            <span>每页展示:</span>
+            <Select value={String(pageSize)} onValueChange={(val) => { setPageSize(Number(val)); setCurrentPage(1); }}>
+              <SelectTrigger className="h-8 w-20 rounded-lg border-black/5 bg-[#F5F5F7] shadow-none focus:ring-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                {[20, 50, 100, 200].map(size => (
+                  <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="h-4 w-px bg-black/5" />
+          <div className="text-xs font-bold text-[#86868B]">
+            共 <span className="text-[#1D1D1F]">{filteredProducts.length}</span> 个链接
+            {selectedIds.length > 0 && (
+              <> · 已勾选 <span className="text-[#FF6B00]">{selectedIds.length}</span> 个</>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="rounded-xl border-black/5 text-xs font-bold disabled:opacity-30 h-9 px-4"
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage(p => p - 1)}
+          >
+            上一页
+          </Button>
+          <div className="flex items-center gap-1.5 mx-2">
+            {(() => {
+              const totalPages = Math.ceil(filteredProducts.length / pageSize);
+              const pages = [];
+              
+              // First page
+              pages.push(
+                <Button 
+                  key={1}
+                  variant={currentPage === 1 ? "default" : "ghost"}
+                  size="sm"
+                  className={cn("w-9 h-9 rounded-xl text-xs font-bold transition-all", currentPage === 1 ? "bg-[#1D1D1F] text-white shadow-md" : "hover:bg-[#F5F5F7] text-[#86868B]")}
+                  onClick={() => setCurrentPage(1)}
+                >1</Button>
+              );
+              
+              if (currentPage > 3) pages.push(<span key="start-ellipsis" className="text-[#86868B] px-1">...</span>);
+              
+              for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+                pages.push(
+                  <Button 
+                    key={i}
+                    variant={currentPage === i ? "default" : "ghost"}
+                    size="sm"
+                    className={cn("w-9 h-9 rounded-xl text-xs font-bold transition-all", currentPage === i ? "bg-[#1D1D1F] text-white shadow-md" : "hover:bg-[#F5F5F7] text-[#86868B]")}
+                    onClick={() => setCurrentPage(i)}
+                  >{i}</Button>
+                );
+              }
+              
+              if (currentPage < totalPages - 2) pages.push(<span key="end-ellipsis" className="text-[#86868B] px-1">...</span>);
+              
+              if (totalPages > 1) {
+                pages.push(
+                  <Button 
+                    key={totalPages}
+                    variant={currentPage === totalPages ? "default" : "ghost"}
+                    size="sm"
+                    className={cn("w-9 h-9 rounded-xl text-xs font-bold transition-all", currentPage === totalPages ? "bg-[#1D1D1F] text-white shadow-md" : "hover:bg-[#F5F5F7] text-[#86868B]")}
+                    onClick={() => setCurrentPage(totalPages)}
+                  >{totalPages}</Button>
+                );
+              }
+              return pages;
+            })()}
+            <div className="flex items-center gap-2 ml-2">
+              <span className="text-xs text-[#86868B]">跳转</span>
+              <input 
+                type="number" 
+                className="w-12 h-9 rounded-lg border border-black/10 text-center text-xs focus:ring-2 focus:ring-[#FF6B00] focus:border-transparent" 
+                min={1} 
+                max={Math.ceil(filteredProducts.length / pageSize)}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (val >= 1 && val <= Math.ceil(filteredProducts.length / pageSize)) {
+                    setCurrentPage(val);
+                  }
+                }}
               />
             </div>
-            
-            <div className="flex justify-end gap-3 pt-4">
-              <Button 
-                variant="outline" 
-                className="rounded-xl h-10 px-6 font-bold"
-                onClick={() => setUploadTimeModal({ isOpen: false, productIds: [], defaultDate: '', uploadTimeSet: false })}
-              >
-                跳过 (保存今天)
-              </Button>
-              <Button 
-                onClick={() => submitUploadTime(uploadTimeModal.defaultDate)} 
-                className="bg-[#1D1D1F] hover:bg-black text-white rounded-xl h-10 px-6 font-bold shadow-md"
-              >
-                确认真实时间
-              </Button>
-            </div>
           </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="rounded-xl border-black/5 text-xs font-bold disabled:opacity-30 h-9 px-4"
+            disabled={currentPage >= Math.ceil(filteredProducts.length / pageSize)}
+            onClick={() => setCurrentPage(p => p + 1)}
+          >
+            下一页
+          </Button>
         </div>
-      )}
+      </div>
 
-      {/* DELETE CONFIRM Modal */}
-      {deleteConfirm && deleteConfirm.isOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-bold text-red-500 mb-4">{deleteConfirm.title || '确认删除'}</h3>
-            <p className="text-[#1D1D1F] mb-6">{deleteConfirm.message || '确定要删除吗？此操作无法撤销。'}</p>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setDeleteConfirm(null)} className="rounded-xl font-bold">
-                取消
-              </Button>
-              <Button 
-                onClick={() => {
-                  deleteConfirm.onConfirm();
-                  setDeleteConfirm(null);
-                }} 
-                className="bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold shadow-md"
-              >
-                确认删除
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <UploadTimeModal
+        isOpen={uploadTimeModal.isOpen}
+        productIds={uploadTimeModal.productIds}
+        defaultDate={uploadTimeModal.defaultDate}
+        onDateChange={(date) => setUploadTimeModal(prev => ({ ...prev, defaultDate: date }))}
+        onSkip={() => setUploadTimeModal({ isOpen: false, productIds: [], defaultDate: '', uploadTimeSet: false })}
+        onSubmit={submitUploadTime}
+      />
+
+      <DeleteConfirmModal
+        isOpen={!!deleteConfirm?.isOpen}
+        title={deleteConfirm?.title}
+        message={deleteConfirm?.message}
+        onCancel={() => setDeleteConfirm(null)}
+        onConfirm={() => {
+          if (deleteConfirm) {
+             deleteConfirm.onConfirm();
+             setDeleteConfirm(null);
+          }
+        }}
+      />
 
     </div>
     </TooltipProvider>

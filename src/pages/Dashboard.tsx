@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, onSnapshot, query, where, doc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
+import { useSettings } from '../components/SettingsContext';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -18,12 +19,14 @@ import { motion } from 'motion/react';
 const COLORS = ['#FF6B00', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316', '#06B6D4', '#6366F1', '#84CC16'];
 const getColor = (index: number) => COLORS[index % COLORS.length];
 
+import { useSecureCollection } from '../hooks/useSecureCollection';
+
 export const Dashboard: React.FC = () => {
   const { profile, isAdmin, isSuperAdmin, currentCompanyId } = useAuth();
+  const { settings } = useSettings();
   const navigate = useNavigate();
-  const [plannings, setPlannings] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [settings, setSettings] = useState<any>({ channels: {} });
+  const { data: plannings } = useSecureCollection('plannings');
+  const { data: products } = useSecureCollection('products');
   const [users, setUsers] = useState<any[]>([]);
 
   const [filterYear, setFilterYear] = useState('all');
@@ -53,86 +56,58 @@ export const Dashboard: React.FC = () => {
   const [previewTitle, setPreviewTitle] = useState('');
 
   useEffect(() => {
-    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
-    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), (docSnap) => {
-      if (docSnap.exists()) {
-        setSettings(docSnap.data());
-      } else if (currentCompanyId !== 'HQ') {
-        getDoc(doc(db, 'settings', 'global')).then(g => {
-          if (g.exists()) setSettings(g.data() as any);
-        });
-      }
-    });
-
-    const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
-
-    const qPlannings = query(collection(db, 'plannings'), where('companyId', '==', currentCompanyId));
-    const qProducts = query(collection(db, 'products'), where('companyId', '==', currentCompanyId));
-
-    const unsubPlannings = onSnapshot(qPlannings, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      if (!isSuperAdmin) {
-        if (!isAdmin && allowedShops.length === 0) {
-          docs = [];
-        } else if (!isAdmin) {
-          docs = docs.filter(doc => {
-            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-            if (!shopPerm) return false;
-            if (shopPerm.canViewPast) return true;
-            return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
-          });
-        }
-      }
-      setPlannings(docs);
-    });
-
-    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as any }));
-      if (!isSuperAdmin) {
-        if (!isAdmin && allowedShops.length === 0) {
-          docs = [];
-        } else if (!isAdmin) {
-          docs = docs.filter(doc => {
-            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-            if (!shopPerm) return false;
-            if (shopPerm.canViewPast) return true;
-            return doc.uploadTime ? new Date(doc.uploadTime) >= new Date(shopPerm.takeoverTime) : new Date(doc.createdAt) >= new Date(shopPerm.takeoverTime);
-          });
-        }
-      }
-      setProducts(docs);
-    });
-
     const unsubUsers = onSnapshot(query(collection(db, 'users'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
     return () => {
-      unsubSettings();
-      unsubPlannings();
-      unsubProducts();
       unsubUsers();
     };
   }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
 
+  const userMap = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    users.forEach(u => {
+      const name = u.displayName || u.username || (u.email ? u.email.split('@')[0] : '未知');
+      if (u.email) map[u.email] = name;
+      if (u.displayName) map[u.displayName] = name;
+      if (u.username) map[u.username] = name;
+    });
+    return map;
+  }, [users]);
+
   const getUserDisplayName = (emailOrName: string) => {
     if (!emailOrName) return '未知';
-    const user = users.find(u => u.email === emailOrName || u.displayName === emailOrName || u.username === emailOrName);
-    return user?.displayName || user?.username || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
+    return userMap[emailOrName] || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
   };
 
-  const uniqueYears = Array.from(new Set([...plannings, ...products].map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean)));
-  const uniqueMonths = Array.from(new Set([...plannings, ...products].map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean)));
-  const uniqueDays = Array.from(new Set([...plannings, ...products].map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean)));
-  const uniqueChannels = Array.from(new Set([...plannings, ...products].map(p => p.channel).filter(Boolean)));
-  const uniqueShops = Array.from(new Set([...plannings, ...products].map(p => p.shop).filter(Boolean)));
-  const uniqueCategories = Array.from(new Set([...plannings, ...products].map(p => p.category).filter(Boolean)));
-  const uniqueOwners = Array.from(new Set([...plannings.map(p => getUserDisplayName(p.ownerName)), ...products.map(p => getUserDisplayName(p.assignedOwner || p.ownerName))].filter(Boolean)));
+  const {
+    uniqueYears,
+    uniqueMonths,
+    uniqueDays,
+    uniqueChannels,
+    uniqueShops,
+    uniqueCategories,
+    uniqueOwners
+  } = React.useMemo(() => {
+    const planningsProducts = [...plannings, ...products];
+    return {
+      uniqueYears: Array.from(new Set(planningsProducts.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean))),
+      uniqueMonths: Array.from(new Set(planningsProducts.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean))),
+      uniqueDays: Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0')),
+      uniqueChannels: Array.from(new Set(planningsProducts.map(p => p.channel).filter(Boolean))),
+      uniqueShops: Array.from(new Set(planningsProducts.map(p => p.shop).filter(Boolean))),
+      uniqueCategories: Array.from(new Set(planningsProducts.map(p => p.category).filter(Boolean))),
+      uniqueOwners: Array.from(new Set([
+        ...plannings.map(p => getUserDisplayName(p.ownerName)), 
+        ...products.map(p => getUserDisplayName(p.assignedOwner || p.ownerName))
+      ].filter(Boolean)))
+    };
+  }, [plannings, products, userMap]);
 
-  const filteredPlannings = plannings.filter(p => {
+  const filteredPlannings = React.useMemo(() => plannings.filter(p => {
     const pMonthStr = typeof p.month === 'string' ? p.month : '';
     if (filterYear !== 'all' && pMonthStr.split('-')[0] !== filterYear) return false;
-    // Safely check split index 1
     const pMonthParts = pMonthStr.split('-');
     if (filterMonth !== 'all' && (pMonthParts.length < 2 || pMonthParts[1] !== filterMonth)) return false;
     if (filterDay !== 'all' && p.uploadTime && new Date(p.uploadTime).getDate().toString().padStart(2, '0') !== filterDay) return false;
@@ -141,9 +116,9 @@ export const Dashboard: React.FC = () => {
     if (filterCategory !== 'all' && p.category !== filterCategory) return false;
     if (filterOwner !== 'all' && getUserDisplayName(p.ownerName) !== filterOwner) return false;
     return true;
-  });
+  }), [plannings, filterYear, filterMonth, filterDay, filterChannel, filterShop, filterCategory, filterOwner, userMap]);
 
-  const filteredProducts = products.filter(p => {
+  const filteredProducts = React.useMemo(() => products.filter(p => {
     const pMonthStr = typeof p.month === 'string' ? p.month : '';
     if (filterYear !== 'all' && pMonthStr.split('-')[0] !== filterYear) return false;
     const pMonthParts = pMonthStr.split('-');
@@ -154,7 +129,7 @@ export const Dashboard: React.FC = () => {
     if (filterCategory !== 'all' && p.category !== filterCategory) return false;
     if (filterOwner !== 'all' && getUserDisplayName(p.assignedOwner || p.ownerName) !== filterOwner) return false;
     return true;
-  });
+  }), [products, filterYear, filterMonth, filterDay, filterChannel, filterShop, filterCategory, filterOwner, userMap]);
 
   const totalPlanned = filteredPlannings.reduce((acc, p) => acc + (p.plannedCount || 0), 0);
   const totalUploaded = filteredProducts.length;

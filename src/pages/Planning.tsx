@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
+import { useSettings } from '../components/SettingsContext';
 import { logOperation } from '../lib/logger';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,28 +15,32 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 
+import { useSecureCollection } from '../hooks/useSecureCollection';
+import { DeleteConfirmModal } from '@/components/common/DeleteConfirmModal';
+import { FieldEditModal } from '@/components/common/FieldEditModal';
+import { AddPlanningModal } from '@/components/Planning/AddPlanningModal';
+
 export const Planning: React.FC = () => {
   const { profile, isAdmin, isSuperAdmin, currentCompanyId } = useAuth();
+  const { settings } = useSettings();
   const navigate = useNavigate();
   const location = useLocation();
-  const [plannings, setPlannings] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [settings, setSettings] = useState<any>({ channels: {} });
+  const { data: plannings } = useSecureCollection('plannings');
+  const { data: products } = useSecureCollection('products');
   const [users, setUsers] = useState<any[]>([]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const allShops = React.useMemo(() => {
     const shops: { name: string, channel: string }[] = [];
-    Object.entries(settings.channels || {}).forEach(([cName, cData]: [string, any]) => {
+    Object.entries(settings?.channels || {}).forEach(([cName, cData]: [string, any]) => {
       (cData.shops || []).forEach((s: any) => {
         shops.push({ name: s.name || s, channel: cName });
       });
     });
     return shops;
-  }, [settings.channels]);
+  }, [settings?.channels]);
   const [filterYear, setFilterYear] = useState('all');
   const [filterMonth, setFilterMonth] = useState('all');
-  const [filterDay, setFilterDay] = useState('all');
   const [filterChannel, setFilterChannel] = useState('all');
   const [filterShop, setFilterShop] = useState('all');
   const [filterOwner, setFilterOwner] = useState('all');
@@ -45,6 +50,7 @@ export const Planning: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     month: new Date().toISOString().slice(0, 7),
+    plannedDay: new Date().getDate().toString().padStart(2, '0'),
     category: '',
     scene: '',
     keywords: '',
@@ -65,7 +71,6 @@ export const Planning: React.FC = () => {
       // Reset filters to ensure the highlighted row is visible
       setFilterYear('all');
       setFilterMonth('all');
-      setFilterDay('all');
       setFilterChannel('all');
       setFilterShop('all');
       setFilterOwner('all');
@@ -85,58 +90,13 @@ export const Planning: React.FC = () => {
   }, [location.state, navigate]);
 
   useEffect(() => {
-    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
-    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), (docSnap) => {
-      if (docSnap.exists()) {
-        setSettings(docSnap.data());
-      } else if (currentCompanyId !== 'HQ') {
-        // Fallback to global if branch settings don't exist yet
-        getDoc(doc(db, 'settings', 'global')).then(g => {
-          if (g.exists()) setSettings(g.data() as any);
-        });
-      }
-    });
-
-    const allowedShops = profile?.permissions?.map((p: any) => p.shop) || [];
-    
-    // Core query by tenant
-    const q = query(collection(db, 'plannings'), where('companyId', '==', currentCompanyId));
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      let docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
-      
-      // Client-side shop filtering for non-admin
-      if (!isSuperAdmin) {
-        if (!isAdmin && allowedShops.length === 0) {
-           docs = [];
-        } else if (!isAdmin) {
-          docs = docs.filter(doc => {
-            const shopPerm = profile?.permissions?.find((p: any) => p.shop === doc.shop);
-            if (!shopPerm) return false;
-            if (shopPerm.canViewPast) return true;
-            const docDate = new Date(doc.createdAt || 0);
-            const takeoverDate = new Date(shopPerm.takeoverTime);
-            return docDate >= takeoverDate;
-          });
-        }
-      }
-      setPlannings(docs);
-    });
-    
     // Add missing users subscription
     const unsubUsers = onSnapshot(query(collection(db, 'users'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    const unsubProducts = onSnapshot(query(collection(db, 'products'), where('companyId', '==', currentCompanyId)), (snapshot) => {
-      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
     return () => {
-      unsubSettings();
-      unsubscribe();
       unsubUsers();
-      unsubProducts();
     };
   }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
 
@@ -221,13 +181,13 @@ export const Planning: React.FC = () => {
     worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
     // 获取列表数据
-    const sources = settings.opportunitySources || ['爆款复刻', '竞品监控', '趋势发现', '站内商机'];
+    const sources = settings?.opportunitySources || ['爆款复刻', '竞品监控', '趋势发现', '站内商机'];
     const channelData: { channel: string; shop: string }[] = [];
-    const uniqueChannels = Object.keys(settings.channels || []);
+    const uniqueChannels = Object.keys(settings?.channels || {});
     
     uniqueChannels.forEach(channelName => {
-      const channel = settings.channels[channelName];
-      if (channel.shops) {
+      const channel = settings?.channels[channelName];
+      if (channel && channel.shops) {
         channel.shops.forEach((s: any) => {
           const shopName = typeof s === 'string' ? s : s.name;
           if (shopName) {
@@ -359,8 +319,13 @@ export const Planning: React.FC = () => {
             }
           }
 
+          let itemMonth = String(item['月份'] || '').trim();
+          if (!itemMonth || itemMonth.startsWith('2024')) {
+            itemMonth = '2026-04';
+          }
+
           const docRef = await addDoc(collection(db, 'plannings'), {
-            month: String(item['月份'] || ''),
+            month: itemMonth,
             source: item['商机来源'] || '',
             parentCategory: item['类目'] || '',
             category: item['品类'] || '',
@@ -393,7 +358,7 @@ export const Planning: React.FC = () => {
 
   const uniqueYears = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean))).sort().reverse() as string[];
   const uniqueMonths = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean))).sort().reverse() as string[];
-  const uniqueDays = Array.from(new Set(plannings.map(p => p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null).filter(Boolean))).sort().reverse() as string[];
+  const uniqueDays = Array.from(new Set(plannings.map(p => p.plannedDay || (p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null)).filter(Boolean))).sort() as string[];
   const uniqueChannels = Array.from(new Set(plannings.map(p => p.channel).filter(Boolean))) as string[];
   const uniqueShops = Array.from(new Set(plannings.map(p => p.shop).filter(Boolean))) as string[];
   const uniqueParentCategories = Array.from(new Set(plannings.map(p => p.parentCategory).filter(Boolean))) as string[];
@@ -410,18 +375,26 @@ export const Planning: React.FC = () => {
   const filteredPlannings = plannings.filter(p => {
     const pYear = typeof p.month === 'string' ? p.month.split('-')[0] : null;
     const pMonth = typeof p.month === 'string' ? p.month.split('-')[1] : null;
-    const pDay = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
+    const pDay = p.plannedDay || (p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null);
 
     const matchesYear = filterYear === 'all' || pYear === filterYear;
     const matchesMonth = filterMonth === 'all' || pMonth === filterMonth;
-    const matchesDay = filterDay === 'all' || pDay === filterDay;
     const matchesChannel = filterChannel === 'all' || p.channel === filterChannel;
     const matchesShop = filterShop === 'all' || p.shop === filterShop;
     const matchesOwner = filterOwner === 'all' || getUserDisplayName(p.ownerName) === filterOwner;
     const matchesParentCategory = filterParentCategory === 'all' || p.parentCategory === filterParentCategory;
     const matchesCategory = filterCategory === 'all' || p.category === filterCategory;
     
-    return matchesYear && matchesMonth && matchesDay && matchesChannel && matchesShop && matchesOwner && matchesParentCategory && matchesCategory;
+    return matchesYear && matchesMonth && matchesChannel && matchesShop && matchesOwner && matchesParentCategory && matchesCategory;
+  }).sort((a, b) => {
+    // Sort by Year, Month, then Day ascending
+    if (a.month !== b.month) return (a.month || '').localeCompare(b.month || '');
+    const dayA = a.plannedDay || (a.uploadTime ? new Date(a.uploadTime).getDate().toString().padStart(2, '0') : '00');
+    const dayB = b.plannedDay || (b.uploadTime ? new Date(b.uploadTime).getDate().toString().padStart(2, '0') : '00');
+    if (dayA !== dayB) return dayA.localeCompare(dayB);
+    const dateA = a.uploadTime ? new Date(a.uploadTime).getTime() : 0;
+    const dateB = b.uploadTime ? new Date(b.uploadTime).getTime() : 0;
+    return dateA - dateB;
   });
 
   return (
@@ -451,15 +424,7 @@ export const Planning: React.FC = () => {
                 {uniqueMonths.map(m => <SelectItem key={m} value={m}>{m}月</SelectItem>)}
               </SelectContent>
             </Select>
-            <Select value={filterDay} onValueChange={setFilterDay}>
-              <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
-                <SelectValue>{filterDay === 'all' ? '全部日' : `${filterDay}日`}</SelectValue>
-              </SelectTrigger>
-              <SelectContent className="rounded-xl">
-                <SelectItem value="all">全部日</SelectItem>
-                {uniqueDays.map(d => <SelectItem key={d} value={d}>{d}日</SelectItem>)}
-              </SelectContent>
-            </Select>
+
             <Select value={filterChannel} onValueChange={setFilterChannel}>
               <SelectTrigger className="h-9 px-3 rounded-lg border-none bg-transparent hover:bg-white/50 text-xs font-bold text-[#86868B] data-[state=open]:bg-white data-[state=open]:text-[#1D1D1F] data-[state=open]:shadow-sm shadow-none focus:ring-0 whitespace-nowrap w-auto">
                 <SelectValue>{filterChannel === 'all' ? '全部渠道' : filterChannel}</SelectValue>
@@ -528,101 +493,22 @@ export const Planning: React.FC = () => {
             >
               <Upload size={18} /> 导入数据
             </Button>
-            <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-              <DialogTrigger render={
-                <Button className="bg-[#FF6B00] hover:bg-[#E66000] text-white rounded-xl gap-2 text-sm font-bold px-8 h-10 ml-2 shadow-lg shadow-[#FF6B00]/20">
-                  <Plus size={18} /> 新增规划
-                </Button>
-              } />
-              <DialogContent className="sm:max-w-[500px] rounded-[32px] border-none shadow-2xl">
-                <DialogHeader>
-                  <DialogTitle className="text-xl font-bold">新增上新规划</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">月份</label>
-                      <Input type="month" className="rounded-xl border-black/10" value={formData.month} onChange={e => setFormData({...formData, month: e.target.value})} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">商机来源</label>
-                      <Select value={formData.source} onValueChange={val => setFormData({...formData, source: val})}>
-                        <SelectTrigger className="rounded-xl border-black/10">
-                          <SelectValue placeholder="选择来源" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl">
-                          {(settings.opportunitySources || []).map((s: string) => (
-                            <SelectItem key={s} value={s}>{s}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">类目</label>
-                      <Input placeholder="如：女装" className="rounded-xl border-black/10" value={formData.parentCategory} onChange={e => setFormData({...formData, parentCategory: e.target.value})} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">品类</label>
-                      <Input placeholder="如：连衣裙" className="rounded-xl border-black/10" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">规划数量</label>
-                      <Input type="number" className="rounded-xl border-black/10" value={formData.plannedCount} onChange={e => setFormData({...formData, plannedCount: Number(e.target.value)})} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">场景</label>
-                      <Input placeholder="如：通勤/约会" className="rounded-xl border-black/10" value={formData.scene} onChange={e => setFormData({...formData, scene: e.target.value})} />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-[#86868B] uppercase">核心关键词</label>
-                    <Input placeholder="多个关键词用逗号隔开" className="rounded-xl border-black/10" value={formData.keywords} onChange={e => setFormData({...formData, keywords: e.target.value})} />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">渠道</label>
-                      <Select value={formData.channel} onValueChange={val => setFormData({...formData, channel: val, shop: ''})}>
-                        <SelectTrigger className="rounded-xl border-black/10">
-                          <SelectValue placeholder="选择渠道" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl">
-                          {Object.keys(settings.channels || {}).map(c => (
-                            <SelectItem key={c} value={c}>{c}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-[#86868B] uppercase">店铺</label>
-                      <Select value={formData.shop} onValueChange={val => {
-                        const selectedShop = allShops.find(s => s.name === val);
-                        setFormData({
-                          ...formData,
-                          shop: val,
-                          channel: selectedShop ? selectedShop.channel : formData.channel
-                        });
-                      }}>
-                        <SelectTrigger className="rounded-xl border-black/10">
-                          <SelectValue placeholder="选择店铺" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl">
-                          {(formData.channel ? allShops.filter(s => s.channel === formData.channel) : allShops).map((s, i) => (
-                            <SelectItem key={`${s.name}-${i}`} value={s.name}>{s.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <Button onClick={handleAdd} className="w-full bg-[#FF6B00] hover:bg-[#E66000] text-white rounded-xl mt-4 font-bold h-12">
-                    确认提交
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button 
+              className="bg-[#FF6B00] hover:bg-[#E66000] text-white rounded-xl gap-2 text-sm font-bold px-8 h-10 ml-2 shadow-lg shadow-[#FF6B00]/20"
+              onClick={() => setIsAddOpen(true)}
+            >
+              <Plus size={18} /> 新增规划
+            </Button>
+
+            <AddPlanningModal
+              isOpen={isAddOpen}
+              setIsOpen={setIsAddOpen}
+              formData={formData}
+              setFormData={setFormData}
+              settings={settings}
+              allShops={allShops}
+              handleAdd={handleAdd}
+            />
           </div>
         </div>
       </header>
@@ -631,7 +517,7 @@ export const Planning: React.FC = () => {
         <Table>
           <TableHeader className="bg-[#F5F5F7]">
             <TableRow className="hover:bg-transparent border-none">
-              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">月份</TableHead>
+              <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4 w-[100px] sticky left-0 bg-[#F5F5F7] z-10 shadow-[1px_0_0_0_rgba(0,0,0,0.05)]">月份</TableHead>
               <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">商机来源</TableHead>
               <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">类目</TableHead>
               <TableHead className="text-xs font-bold text-[#86868B] uppercase py-4">品类</TableHead>
@@ -647,7 +533,7 @@ export const Planning: React.FC = () => {
             {filteredPlannings.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={10} className="h-32 text-center text-[#86868B] text-sm">
-                  {(filterYear !== 'all' || filterMonth !== 'all' || filterDay !== 'all' || filterChannel !== 'all' || filterShop !== 'all' || filterOwner !== 'all' || filterCategory !== 'all') ? '未找到匹配的规划' : '暂无规划数据'}
+                  {(filterYear !== 'all' || filterMonth !== 'all' || filterChannel !== 'all' || filterShop !== 'all' || filterOwner !== 'all' || filterCategory !== 'all') ? '未找到匹配的规划' : '暂无规划数据'}
                 </TableCell>
               </TableRow>
             ) : (
@@ -658,8 +544,8 @@ export const Planning: React.FC = () => {
                   onDoubleClick={() => navigate('/products', { state: { action: 'bind', planning: p } })}
                   className={`hover:bg-[#F5F5F7]/50 transition-colors border-black/5 group cursor-pointer ${highlightId === p.id ? 'bg-[#FF6B00]/10' : ''}`}
                 >
-                  <TableCell>
-                    <div className="text-sm font-medium text-[#1D1D1F]">{p.month}</div>
+                  <TableCell className="sticky left-0 bg-white group-hover:bg-[#F5F5F7]/50 z-10 shadow-[1px_0_0_0_rgba(0,0,0,0.05)]">
+                    <div className="text-sm font-bold text-[#1D1D1F]">{p.month || '-'}</div>
                   </TableCell>
                   <TableCell>
                     <div className="text-xs text-[#86868B] font-bold">{p.source || '-'}</div>
@@ -727,64 +613,27 @@ export const Planning: React.FC = () => {
         </Table>
       </div>
 
-      {/* DELETE CONFIRM Modal */}
-      {deleteConfirm && deleteConfirm.isOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-bold text-red-500 mb-4">{deleteConfirm.title || '确认删除'}</h3>
-            <p className="text-[#1D1D1F] mb-6">{deleteConfirm.message || '确定要删除吗？此操作无法撤销。'}</p>
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setDeleteConfirm(null)} className="rounded-xl font-bold">
-                取消
-              </Button>
-              <Button 
-                onClick={() => {
-                  deleteConfirm.onConfirm();
-                  setDeleteConfirm(null);
-                }} 
-                className="bg-red-500 hover:bg-red-600 text-white rounded-xl font-bold shadow-md"
-              >
-                确认删除
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DeleteConfirmModal
+        isOpen={!!deleteConfirm?.isOpen}
+        title={deleteConfirm?.title}
+        message={deleteConfirm?.message}
+        onCancel={() => setDeleteConfirm(null)}
+        onConfirm={() => {
+          if (deleteConfirm) {
+            deleteConfirm.onConfirm();
+            setDeleteConfirm(null);
+          }
+        }}
+      />
 
-      {/* FIELD EDIT Modal */}
-      {fieldEdit && fieldEdit.isOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-[32px] p-8 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-bold text-[#1D1D1F] mb-6">{fieldEdit.title}</h3>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-[#86868B] uppercase">新值</label>
-                <Input 
-                  autoFocus
-                  value={fieldEdit.value} 
-                  onChange={(e) => setFieldEdit({...fieldEdit, value: e.target.value})}
-                  className="rounded-xl border-black/10 h-12"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleUpdateField();
-                    if (e.key === 'Escape') setFieldEdit(null);
-                  }}
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-4">
-                <Button variant="ghost" onClick={() => setFieldEdit(null)} className="rounded-xl font-bold h-11 px-6">
-                  取消
-                </Button>
-                <Button 
-                  onClick={handleUpdateField}
-                  className="bg-[#FF6B00] hover:bg-[#E66000] text-white rounded-xl font-bold px-8 h-11 shadow-lg shadow-[#FF6B00]/20"
-                >
-                  保存修改
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <FieldEditModal
+        isOpen={!!fieldEdit?.isOpen}
+        title={fieldEdit?.title || '修改'}
+        value={fieldEdit?.value || ''}
+        onValueChange={(val) => fieldEdit && setFieldEdit({ ...fieldEdit, value: val })}
+        onCancel={() => setFieldEdit(null)}
+        onConfirm={handleUpdateField}
+      />
 
     </div>
   );

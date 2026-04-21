@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './components/AuthContext';
+import { SettingsProvider } from './components/SettingsContext';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { Dashboard } from './pages/Dashboard';
@@ -120,19 +121,21 @@ const AuthGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
-          <Route path="/planning" element={<AuthGuard><Planning /></AuthGuard>} />
-          <Route path="/products" element={<AuthGuard><ProductManagement /></AuthGuard>} />
-          <Route path="/progress" element={<AuthGuard><BentoProgress /></AuthGuard>} />
-          <Route path="/brainstorming" element={<AuthGuard><Brainstorming /></AuthGuard>} />
-          <Route path="/brainstorming/:id" element={<AuthGuard><Brainstorming /></AuthGuard>} />
-          <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
-        </Routes>
-      </BrowserRouter>
-      <Toaster position="top-center" />
+      <SettingsProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
+            <Route path="/planning" element={<AuthGuard><Planning /></AuthGuard>} />
+            <Route path="/products" element={<AuthGuard><ProductManagement /></AuthGuard>} />
+            <Route path="/progress" element={<AuthGuard><BentoProgress /></AuthGuard>} />
+            <Route path="/brainstorming" element={<AuthGuard><Brainstorming /></AuthGuard>} />
+            <Route path="/brainstorming/:id" element={<AuthGuard><Brainstorming /></AuthGuard>} />
+            <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
+          </Routes>
+        </BrowserRouter>
+        <Toaster position="top-center" />
+      </SettingsProvider>
     </AuthProvider>
   );
 }

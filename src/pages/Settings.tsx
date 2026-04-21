@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, query, orderBy, limit, getDoc, where } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { useAuth } from '../components/AuthContext';
+import { useSettings } from '../components/SettingsContext';
 import { logOperation } from '../lib/logger';
 import { updatePassword } from 'firebase/auth';
 import { Input } from '@/components/ui/input';
@@ -17,7 +18,8 @@ import { Reorder } from 'motion/react';
 
 export const Settings: React.FC = () => {
   const { isAdmin, isSuperAdmin, user: currentUser, profile, currentCompanyId } = useAuth();
-  const [settings, setSettings] = useState<any>({
+  const { settings, loading: settingsLoading } = useSettings();
+  const [localSettings, setLocalSettings] = useState<any>({
     channels: {}, // { "拼多多": { shops: [], sop: [] } }
     opportunitySources: ['爆款复刻', '竞品监控', '趋势发现', '站内商机'], // Default sources
     linkJudgments: [
@@ -70,58 +72,45 @@ export const Settings: React.FC = () => {
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; title?: string; message?: string; onConfirm: () => void } | null>(null);
 
   useEffect(() => {
-    const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
-    
-    // First setup unsub to listen to current setting doc
-    const unsubSettings = onSnapshot(doc(db, 'settings', settingDocId), async (docSnap) => {
-      let data = docSnap.data();
+    if (!settingsLoading && settings) {
+      const migrated: any = { 
+        channels: settings.channels || {},
+        opportunitySources: settings.opportunitySources || ['爆款复刻', '竞品监控', '趋势发现', '站内商机'],
+        linkJudgments: (settings.linkJudgments || [
+          { label: '待设置', definition: '尚未进行链接判定的商品', color: '#86868B' },
+          { label: '滞销', definition: '上架后无销量或销量极低的商品', color: '#3B82F6' },
+          { label: '动销', definition: '有稳定销量但未达爆款标准的商品', color: '#10B981' },
+          { label: '小爆', definition: '销量增长迅速，具有爆款潜力的商品', color: '#F59E0B' },
+          { label: '大爆', definition: '销量极高，处于爆发期的核心商品', color: '#EF4444' },
+        ]).map((j: any) => ({
+          ...j,
+          color: j.color || '#86868B'
+        }))
+      };
       
-      // If it doesn't exist but we are in a sub-company, fallback to global
-      if (!docSnap.exists() && currentCompanyId !== 'HQ') {
-        const globalDoc = await getDoc(doc(db, 'settings', 'global'));
-        if (globalDoc.exists()) {
-          data = globalDoc.data();
-        }
+      // Migrate old format (array of strings) to new format (object with shops and sop)
+      if (Array.isArray(settings.channels)) {
+        migrated.channels = {};
+        settings.channels.forEach((c: string) => {
+          migrated.channels[c] = { shops: [], sop: ['上架', '测款', '加购', '晒图', '内销', '全站'] };
+        });
       }
 
-      if (data) {
-        const migrated: any = { 
-          channels: data.channels || {},
-          opportunitySources: data.opportunitySources || ['爆款复刻', '竞品监控', '趋势发现', '站内商机'],
-          linkJudgments: (data.linkJudgments || [
-            { label: '待设置', definition: '尚未进行链接判定的商品', color: '#86868B' },
-            { label: '滞销', definition: '上架后无销量或销量极低的商品', color: '#3B82F6' },
-            { label: '动销', definition: '有稳定销量但未达爆款标准的商品', color: '#10B981' },
-            { label: '小爆', definition: '销量增长迅速，具有爆款潜力的商品', color: '#F59E0B' },
-            { label: '大爆', definition: '销量极高，处于爆发期的核心商品', color: '#EF4444' },
-          ]).map((j: any) => ({
-            ...j,
-            color: j.color || '#86868B'
-          }))
-        };
-        
-        // Migrate old format (array of strings) to new format (object with shops and sop)
-        if (Array.isArray(data.channels)) {
-          migrated.channels = {};
-          data.channels.forEach((c: string) => {
-            migrated.channels[c] = { shops: [], sop: ['上架', '测款', '加购', '晒图', '内销', '全站'] };
+      // Migrate shops from string array to object array with owners
+      Object.keys(migrated.channels).forEach(c => {
+        if (Array.isArray(migrated.channels[c].shops)) {
+          migrated.channels[c].shops = migrated.channels[c].shops.map((s: any) => {
+            if (typeof s === 'string') return { name: s, owners: [] };
+            return s;
           });
         }
+      });
 
-        // Migrate shops from string array to object array with owners
-        Object.keys(migrated.channels).forEach(c => {
-          if (Array.isArray(migrated.channels[c].shops)) {
-            migrated.channels[c].shops = migrated.channels[c].shops.map((s: any) => {
-              if (typeof s === 'string') return { name: s, owners: [] };
-              return s;
-            });
-          }
-        });
+      setLocalSettings(migrated);
+    }
+  }, [settings, settingsLoading]);
 
-        setSettings(migrated);
-      }
-    });
-
+  useEffect(() => {
     const unsubUsers = onSnapshot(query(collection(db, 'users'), where('companyId', '==', currentCompanyId)), (snapshot) => {
       setUsers(snapshot.docs.map((doc: any) => ({ id: doc.id, ...doc.data() })));
     });
@@ -156,13 +145,29 @@ export const Settings: React.FC = () => {
     }
 
     return () => {
-      unsubSettings();
       unsubUsers();
       unsubLogs();
       unsubGlobalUsers();
       unsubAllCompanies();
     };
   }, [currentCompanyId, isAdmin, isSuperAdmin]);
+
+  // Migration for allowedShops
+  useEffect(() => {
+    if (isAdmin && users.length > 0) {
+      users.forEach(async (u) => {
+        if (u.permissions && Array.isArray(u.permissions) && !u.allowedShops) {
+           const allowedShops = u.permissions.map((p: any) => p.shop);
+           try {
+             await setDoc(doc(db, 'users', u.id), { allowedShops }, { merge: true });
+             console.log(`Migrated allowedShops for user ${u.id}`);
+           } catch(e) {
+             console.error("Migration failed", e);
+           }
+        }
+      });
+    }
+  }, [isAdmin, users]);
 
   const saveSettings = async (newSettings: any) => {
     const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
@@ -173,9 +178,9 @@ export const Settings: React.FC = () => {
   const handleAddChannel = async () => {
     if (!newChannel) return;
     const updated = {
-      ...settings,
+      ...localSettings,
       channels: {
-        ...settings.channels,
+        ...localSettings.channels,
         [newChannel]: { shops: [], sop: ['上架', '测款', '加购', '晒图', '内销', '全站'] }
       }
     };
@@ -185,7 +190,7 @@ export const Settings: React.FC = () => {
   };
 
   const handleRemoveChannel = async (channel: string) => {
-    const updated = { ...settings };
+    const updated = { ...localSettings };
     delete updated.channels[channel];
     await saveSettings(updated);
     await logOperation('DELETE', 'SYSTEM', 'channels', `删除渠道: ${channel}`, profile);
@@ -193,8 +198,8 @@ export const Settings: React.FC = () => {
   };
 
   const handleAddShop = async () => {
-    if (!activeChannel || !newShop || !settings.channels?.[activeChannel]) return;
-    const updated = { ...settings };
+    if (!activeChannel || !newShop || !localSettings.channels?.[activeChannel]) return;
+    const updated = { ...localSettings };
     if (!updated.channels[activeChannel].shops) updated.channels[activeChannel].shops = [];
     updated.channels[activeChannel].shops.push({ name: newShop, owners: [] });
     await saveSettings(updated);
@@ -203,8 +208,8 @@ export const Settings: React.FC = () => {
   };
 
   const handleRemoveShop = async (channel: string, index: number) => {
-    if (!settings.channels?.[channel]?.shops) return;
-    const updated = { ...settings };
+    if (!localSettings.channels?.[channel]?.shops) return;
+    const updated = { ...localSettings };
     const removedShop = updated.channels[channel].shops[index];
     if (!removedShop) return;
     updated.channels[channel].shops = updated.channels[channel].shops.filter((_: any, i: number) => i !== index);
@@ -213,8 +218,8 @@ export const Settings: React.FC = () => {
   };
 
   const toggleShopOwner = async (channel: string, shopIndex: number, userEmail: string) => {
-    if (!settings.channels?.[channel]?.shops) return;
-    const updated = { ...settings };
+    if (!localSettings.channels?.[channel]?.shops) return;
+    const updated = { ...localSettings };
     const shop = updated.channels[channel].shops[shopIndex];
     if (!shop) return;
     if (!shop.owners) shop.owners = [];
@@ -227,8 +232,8 @@ export const Settings: React.FC = () => {
   };
 
   const handleAddSop = async () => {
-    if (!activeChannel || !newSop || !settings.channels?.[activeChannel]) return;
-    const updated = { ...settings };
+    if (!activeChannel || !newSop || !localSettings.channels?.[activeChannel]) return;
+    const updated = { ...localSettings };
     if (!updated.channels[activeChannel].sop) updated.channels[activeChannel].sop = [];
     updated.channels[activeChannel].sop.push(newSop);
     await saveSettings(updated);
@@ -237,8 +242,8 @@ export const Settings: React.FC = () => {
   };
 
   const handleRemoveSop = async (channel: string, index: number) => {
-    if (!settings.channels?.[channel]?.sop) return;
-    const updated = { ...settings };
+    if (!localSettings.channels?.[channel]?.sop) return;
+    const updated = { ...localSettings };
     const removedSop = updated.channels[channel].sop[index];
     if (!removedSop) return;
     updated.channels[channel].sop = updated.channels[channel].sop.filter((_: any, i: number) => i !== index);
@@ -247,15 +252,15 @@ export const Settings: React.FC = () => {
   };
 
   const handleReorderSop = async (channel: string, newSop: string[]) => {
-    if (!settings.channels?.[channel]) return;
-    const updated = { ...settings };
+    if (!localSettings.channels?.[channel]) return;
+    const updated = { ...localSettings };
     updated.channels[channel].sop = newSop;
     await saveSettings(updated);
   };
 
   const handleAddSource = async () => {
     if (!newSource) return;
-    const updated = { ...settings };
+    const updated = { ...localSettings };
     if (!updated.opportunitySources) updated.opportunitySources = [];
     updated.opportunitySources.push(newSource);
     await saveSettings(updated);
@@ -264,7 +269,7 @@ export const Settings: React.FC = () => {
   };
 
   const handleRemoveSource = async (index: number) => {
-    const updated = { ...settings };
+    const updated = { ...localSettings };
     const removedSource = updated.opportunitySources[index];
     updated.opportunitySources = updated.opportunitySources.filter((_: any, i: number) => i !== index);
     await saveSettings(updated);
@@ -273,7 +278,7 @@ export const Settings: React.FC = () => {
 
   const handleAddJudgment = async () => {
     if (!newJudgment.label) return;
-    const updated = { ...settings };
+    const updated = { ...localSettings };
     if (!updated.linkJudgments) updated.linkJudgments = [];
     updated.linkJudgments.push(newJudgment);
     await saveSettings(updated);
@@ -282,7 +287,7 @@ export const Settings: React.FC = () => {
   };
 
   const handleUpdateJudgmentColor = async (index: number, newColor: string) => {
-    const updated = { ...settings };
+    const updated = { ...localSettings };
     updated.linkJudgments[index].color = newColor;
     await saveSettings(updated);
   };
@@ -315,7 +320,7 @@ export const Settings: React.FC = () => {
   };
 
   const handleBatchAddAllShops = (userId: string, currentPerms: any[] = []) => {
-    const allShops = Object.entries(settings.channels || {}).flatMap(([c, data]: [string, any]) => 
+    const allShops = Object.entries(localSettings.channels || {}).flatMap(([c, data]: [string, any]) => 
       (data?.shops || []).map((s: any) => s.name)
     );
     const currentShopMap = new Set(currentPerms.map(p => p.shop));
@@ -349,7 +354,8 @@ export const Settings: React.FC = () => {
 
   const handleUpdateUserPermissions = async (userId: string, permissions: any[]) => {
     try {
-      await setDoc(doc(db, 'users', userId), { permissions }, { merge: true });
+      const allowedShops = permissions.map(p => p.shop);
+      await setDoc(doc(db, 'users', userId), { permissions, allowedShops }, { merge: true });
       await logOperation('UPDATE', 'SYSTEM', 'users', `更新用户权限: ${userId}`, { uid: 'admin', email: 'admin' } as any);
       toast.success('权限已更新');
     } catch (error) {
@@ -466,7 +472,7 @@ export const Settings: React.FC = () => {
                 </h3>
               </div>
               <div className="p-4 space-y-2">
-                {Object.keys(settings.channels || {}).map(channel => (
+                {Object.keys(localSettings.channels || {}).map(channel => (
                   <div 
                     key={channel} 
                     onClick={() => setActiveChannel(channel)}
@@ -511,7 +517,7 @@ export const Settings: React.FC = () => {
                       [{activeChannel}] 店铺设置
                     </h3>
                     <div className="space-y-3 mb-4">
-                      {settings.channels[activeChannel]?.shops?.map((shop: any, i: number) => (
+                      {localSettings.channels[activeChannel]?.shops?.map((shop: any, i: number) => (
                         <div key={i} className="p-4 rounded-xl bg-[#F5F5F7] border border-black/5 group">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-sm font-bold text-[#1D1D1F]">{shop.name}</span>
@@ -548,11 +554,11 @@ export const Settings: React.FC = () => {
                     </h3>
                     <Reorder.Group 
                       axis="y" 
-                      values={settings.channels[activeChannel]?.sop || []} 
+                      values={localSettings.channels[activeChannel]?.sop || []} 
                       onReorder={(newOrder) => handleReorderSop(activeChannel, newOrder)}
                       className="space-y-2 mb-4"
                     >
-                      {(settings.channels[activeChannel]?.sop || []).map((step: string, i: number) => (
+                      {(localSettings.channels[activeChannel]?.sop || []).map((step: string, i: number) => (
                         <Reorder.Item 
                           key={step} 
                           value={step}
@@ -602,7 +608,7 @@ export const Settings: React.FC = () => {
               </div>
               <div className="p-4 space-y-2">
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {(settings.opportunitySources || []).map((source: string, i: number) => (
+                  {(localSettings.opportunitySources || []).map((source: string, i: number) => (
                     <div key={i} className="pl-3 pr-1 py-1.5 rounded-xl bg-[#F5F5F7] text-[#1D1D1F] text-xs font-bold flex items-center gap-1 border border-black/5 group">
                       {source}
                       <button onClick={(e) => {
@@ -641,7 +647,7 @@ export const Settings: React.FC = () => {
               </div>
               <div className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                  {(settings.linkJudgments || []).map((j: any, i: number) => (
+                  {(localSettings.linkJudgments || []).map((j: any, i: number) => (
                     <div key={i} className="p-4 rounded-2xl bg-[#F5F5F7] border border-black/5 relative group">
                       <div className="flex justify-between items-start mb-1">
                         <div className="flex items-center gap-2">
@@ -853,7 +859,7 @@ export const Settings: React.FC = () => {
                                     <SelectValue placeholder="选择店铺" />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {Object.entries(settings.channels || {}).flatMap(([c, data]: [string, any]) => 
+                                    {Object.entries(localSettings.channels || {}).flatMap(([c, data]: [string, any]) => 
                                       (data?.shops || []).map((s: any) => (
                                         <SelectItem key={`${c}-${s.name}`} value={s.name}>{c} - {s.name}</SelectItem>
                                       ))

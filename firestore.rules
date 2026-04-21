@@ -75,6 +75,11 @@ service cloud.firestore {
       return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
 
+    function getAllowedShops() {
+      let userDoc = get(/databases/$(database)/documents/users/$(request.auth.uid));
+      return userDoc != null && 'allowedShops' in userDoc.data ? userDoc.data.allowedShops : [];
+    }
+
     // ===============================================================
     // Domain Validators
     // ===============================================================
@@ -127,14 +132,14 @@ service cloud.firestore {
     }
 
     match /plannings/{planningId} {
-      allow read: if isAuthenticated() && belongsToCompany(resource.data);
+      allow read: if isAuthenticated() && belongsToCompany(resource.data) && (isAdmin() || resource.data.shop in getAllowedShops());
       allow create: if isAuthenticated() && isValidPlanning(request.resource.data) && belongsToCompany(request.resource.data) && (request.resource.data.ownerId == request.auth.uid || isAdmin());
       allow update: if isAuthenticated() && isValidPlanning(request.resource.data) && belongsToCompany(resource.data) && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow delete: if isAuthenticated() && belongsToCompany(resource.data) && (resource.data.ownerId == request.auth.uid || isAdmin());
     }
 
     match /products/{productId} {
-      allow read: if isAuthenticated() && belongsToCompany(resource.data);
+      allow read: if isAuthenticated() && belongsToCompany(resource.data) && (isAdmin() || resource.data.shop in getAllowedShops());
       allow create: if isAuthenticated() && isValidProduct(request.resource.data) && belongsToCompany(request.resource.data) && (request.resource.data.ownerId == request.auth.uid || isAdmin());
       allow update: if isAuthenticated() && isValidProduct(request.resource.data) && belongsToCompany(resource.data) && (resource.data.ownerId == request.auth.uid || isAdmin());
       allow delete: if isAuthenticated() && belongsToCompany(resource.data) && (resource.data.ownerId == request.auth.uid || isAdmin());
