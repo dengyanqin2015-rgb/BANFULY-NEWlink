@@ -43,15 +43,16 @@ const estimateWidth = (node: any) => {
   const label = node.data.label || '';
   let charCount = 0;
   for (let i = 0; i < label.length; i++) {
-    charCount += label.charCodeAt(i) > 255 ? 2.0 : 1.1;
+    // Chinese/Full-width roughly 1 unit, Western roughly 0.55 unit
+    charCount += label.charCodeAt(i) > 255 ? 1.0 : 0.55;
   }
   const fontSize = node.data.fontSize || 14;
-  // Content scale: approx 0.9 * fontSize per char unit (western=1.1, chinese=2.0)
-  const contentWidth = Math.max(4, charCount) * (fontSize * 0.9);
-  const baseWidth = contentWidth + 48; 
+  // Buffer for padding and potential font variations
+  const contentWidth = Math.max(2, charCount) * fontSize;
+  const baseWidth = contentWidth + 24; // Halved from 48 to reduce excessive whitespace
   
-  if (node.id === 'root') return baseWidth + 60;
-  if (node.data.parentId === 'root') return baseWidth + 40; 
+  if (node.id === 'root') return baseWidth + 40;
+  if (node.data.parentId === 'root') return baseWidth + 20; 
   return baseWidth;
 };
 
@@ -106,7 +107,7 @@ const layoutMindMap = (nodes: any[], globalsDirection: string = 'right') => {
     return Math.max(40, h + (children.length - 1) * 24); 
   };
 
-  const minGapX = 140; // Default min gap between columns
+  const minGapX = 140; // Adjusted based on 84px link + average widths
 
   const assignPositions = (id: string, x: number, y: number, direction: string) => {
     const node = nodeMap.get(id);
@@ -121,13 +122,13 @@ const layoutMindMap = (nodes: any[], globalsDirection: string = 'right') => {
     const key = `${info?.depth}_${info?.direction}`;
     const levelMaxWidth = maxContentWidthPerDepth.get(key) || 120;
     
-    // To align children correctly at the same X coordinate:
-    // Gap = (Max width of parents / 2) + 80 (standard line) + (Approximate max width of children / 2)
-    // We use a constant for child width approximation to keep layout stable
+    // To align children correctly at the same X coordinate (Column alignment):
     const nextLevelKey = `${(info?.depth || 0) + 1}_${info?.direction}`;
     const nextLevelMaxWidth = maxContentWidthPerDepth.get(nextLevelKey) || 120;
     
-    const gapX = Math.max(minGapX, (levelMaxWidth / 2) + 80 + (nextLevelMaxWidth / 2));
+    // Total gap between center of parent and center of child
+    // 84px represents 7 grid cells (gap=12) for the visible link length
+    const gapX = Math.max(minGapX, (levelMaxWidth / 2) + 84 + (nextLevelMaxWidth / 2));
 
     let totalH = getSubtreeHeight(id);
     let startY = y - totalH / 2;
@@ -303,7 +304,7 @@ const MindMapNode = ({ id, data, isConnectable, selected }: any) => {
 
   return (
     <div 
-      className={`${nodeStyle} relative px-4 py-2 ${selected && !isRoot ? 'ring-2 ring-[#3B82F6] ring-offset-2' : ''} ${isSnapTarget ? 'bg-blue-50 border-blue-400 scale-105' : ''}`}
+      className={`${nodeStyle} relative px-2 py-2 ${selected && !isRoot ? 'ring-2 ring-[#3B82F6] ring-offset-2' : ''} ${isSnapTarget ? 'bg-blue-50 border-blue-400 scale-105' : ''}`}
       style={{ ...dynamicStyle, width: `${nodeWidth}px` }}
       onDoubleClick={() => !isGhost && setIsEditing(true)}
     >
@@ -378,14 +379,14 @@ const MindMapEdge = ({ id, sourceX, sourceY, targetX, targetY, style = {}, data 
   
   if (edgeStyle === 'step') {
     // Rigid Right-angler (Rigid Step)
-    const midX = sourceX + (isLeft ? -30 : 30);
+    const midX = sourceX + (isLeft ? -42 : 42); // Half of 84px gap
     path = `M ${sourceX} ${sourceY} 
             L ${midX} ${sourceY} 
             L ${midX} ${targetY} 
             L ${targetX} ${targetY}`;
   } else {
     // Smooth Bezier
-    const offset = Math.min(dx / 2, 80);
+    const offset = Math.min(dx / 2, 60); 
     path = `M ${sourceX} ${sourceY} 
             C ${sourceX + (isLeft ? -offset : offset)} ${sourceY}, 
               ${targetX + (isLeft ? offset : -offset)} ${targetY}, 
@@ -705,7 +706,7 @@ const MindMapEditor = ({ id, maps, profile, isAdmin, isSuperAdmin, currentCompan
       const newNode: any = {
         id: newNodeId,
         type: 'mindmap',
-        position: { x: parentNode.position.x + (direction === 'left' ? -200 : 200), y: parentNode.position.y },
+        position: { x: parentNode.position.x + (direction === 'left' ? -160 : 160), y: parentNode.position.y },
         data: { 
           label: '新节点', 
           parentId, 

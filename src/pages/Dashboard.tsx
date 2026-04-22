@@ -610,14 +610,14 @@ export const Dashboard: React.FC = () => {
             </Popover>
           </div>
           
-          <div className="flex-1 w-full min-h-0">
+          <div className="flex-1 w-full min-h-[300px] relative">
             {chartMetrics.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-[#86868B]">
                 <TrendingUp size={48} className="mb-4 opacity-20" />
                 <p className="text-sm font-bold">请在右上角配置需要查看的走势字段</p>
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" debounce={100}>
                 <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F5F5F7" />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#86868B', fontWeight: 600 }} dy={10} />

@@ -7,10 +7,14 @@ import { useSettings } from '../components/SettingsContext';
 import { logOperation } from '../lib/logger';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { AnimatePresence, motion } from 'motion/react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Download, Upload, Trash2, Edit2, Search } from 'lucide-react';
+import { Plus, Download, Upload, Trash2, Edit2, Search, Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
@@ -291,6 +295,50 @@ export const Planning: React.FC = () => {
     window.URL.revokeObjectURL(url);
     
     toast.success('模板下载成功');
+  };
+
+  const calculateDays = (dateStr: string) => {
+    if (!dateStr) return 0;
+    const uploadDate = new Date(dateStr);
+    const today = new Date();
+    const diffTime = Math.abs(today.getTime() - uploadDate.getTime());
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
+  const [productListDialogOpen, setProductListDialogOpen] = useState(false);
+  const [selectedPlanningForProducts, setSelectedPlanningForProducts] = useState<any>(null);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<'planning' | 'links'>('links');
+
+  const handleToggleProductStep = async (productId: string, step: string, currentVal: boolean) => {
+    try {
+      await updateDoc(doc(db, 'products', productId), {
+        [`steps.${step}`]: !currentVal
+      });
+      toast.success('更新成功');
+    } catch (error) {
+      toast.error('更新失败');
+    }
+  };
+
+  const handleBatchUpdateProductSteps = async (step: string, value: boolean) => {
+    if (selectedProductIds.length === 0) return;
+    try {
+      const batch = writeBatch(db);
+      selectedProductIds.forEach(id => {
+        batch.update(doc(db, 'products', id), { [`steps.${step}`]: value });
+      });
+      await batch.commit();
+      toast.success(`已批量更新 ${selectedProductIds.length} 个商品`);
+    } catch (error) {
+      toast.error('批量更新失败');
+    }
+  };
+
+  const handleCopyProductIds = (ids: string | string[]) => {
+    const text = Array.isArray(ids) ? ids.join('\n') : ids;
+    navigator.clipboard.writeText(text);
+    toast.success('已复制到剪贴板');
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -595,7 +643,16 @@ export const Planning: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-sm text-[#1D1D1F] max-w-[200px] truncate">{p.keywords}</TableCell>
                   <TableCell className="text-center">
-                    <span className="text-sm font-bold text-[#FF6B00]">
+                    <span 
+                      className="text-sm font-bold text-[#FF6B00] hover:underline cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPlanningForProducts(p);
+                        setProductListDialogOpen(true);
+                        setSelectedProductIds([]);
+                        setActiveTab('links');
+                      }}
+                    >
                       {products.filter(pr => pr.planningId === p.id).length}
                     </span>
                     <span className="text-[#86868B] mx-1 text-sm">/</span>
@@ -751,7 +808,274 @@ export const Planning: React.FC = () => {
         onConfirm={handleUpdateField}
       />
 
+      <Dialog open={productListDialogOpen} onOpenChange={setProductListDialogOpen}>
+        <DialogContent className={cn(
+          "max-h-[92vh] overflow-hidden rounded-[32px] p-0 flex flex-col gap-0 border-none shadow-2xl transition-all duration-300",
+          activeTab === 'planning' ? "max-w-[95vw] xl:max-w-[1300px]" : "max-w-[98vw] w-[1700px] sm:max-w-[95vw] md:max-w-[1700px]"
+        )}>
+          <DialogHeader className="px-8 py-6 border-b border-black/5 flex flex-row items-center justify-between shrink-0">
+            <div className="flex flex-col gap-1.5">
+              <DialogTitle className="text-2xl font-bold text-[#1D1D1F]">
+                {selectedPlanningForProducts?.category} - {activeTab === 'planning' ? '规划明细' : '商品链接'}
+              </DialogTitle>
+              <div className="flex items-center gap-3 text-sm text-[#86868B] font-medium">
+                <Badge variant="outline" className="bg-[#FF6B00]/5 text-[#FF6B00] border-[#FF6B00]/20 rounded-md py-0 px-2 h-5 text-[10px] font-bold">{selectedPlanningForProducts?.channel}</Badge>
+                <span className="w-1 h-1 rounded-full bg-black/10" />
+                <span className="text-[#1D1D1F]">{selectedPlanningForProducts?.shop}</span>
+                {activeTab === 'links' && (
+                  <>
+                    <span className="w-1 h-1 rounded-full bg-black/10" />
+                    <span className="bg-black/5 px-2 py-0.5 rounded-md text-[11px] font-bold">共 {products.filter(pr => pr.planningId === selectedPlanningForProducts?.id).length} 个商品</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="flex bg-[#F5F5F7] p-1 rounded-xl gap-1 border border-black/[0.03]">
+              <button 
+                onClick={() => setActiveTab('planning')}
+                className={cn(
+                  "px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
+                  activeTab === 'planning' ? "bg-white shadow-sm text-[#FF6B00]" : "text-[#86868B] hover:text-[#1D1D1F]"
+                )}
+              >
+                上新规划
+              </button>
+              <button 
+                onClick={() => setActiveTab('links')}
+                className={cn(
+                  "px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
+                  activeTab === 'links' ? "bg-white shadow-sm text-[#FF6B00]" : "text-[#86868B] hover:text-[#1D1D1F]"
+                )}
+              >
+                商品链接
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3 pr-10">
+              {activeTab === 'links' && selectedPlanningForProducts && selectedProductIds.length > 0 && (
+                <Button 
+                  onClick={() => {
+                    const idsToCopy = products.filter(pr => selectedProductIds.includes(pr.id)).map(pr => pr.productId);
+                    handleCopyProductIds(idsToCopy);
+                  }}
+                  className="bg-[#FF6B00] hover:bg-[#E66000] text-white rounded-xl gap-2 text-sm font-bold h-11 px-6 shadow-lg shadow-[#FF6B00]/20 animate-in fade-in zoom-in duration-200"
+                >
+                  <Plus size={18} /> 批量复制 {selectedProductIds.length} 个商品ID
+                </Button>
+              )}
+            </div>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto bg-[#FBFBFD] custom-scrollbar p-8">
+            <AnimatePresence mode="wait">
+              {activeTab === 'planning' ? (
+                <motion.div 
+                  key="planning"
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden"
+                >
+                  <Table className="min-w-[900px]">
+                    <TableHeader className="bg-[#F5F5F7]">
+                      <TableRow className="hover:bg-transparent border-none">
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 pl-6">月份</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">商机来源</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">品类</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">场景</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">核心关键词</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 text-center">规划/已上架</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4">负责人</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 pr-6">店铺/渠道</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedPlanningForProducts ? (
+                        <TableRow className="hover:bg-[#F5F5F7]/50 transition-colors border-black/5 group">
+                          <TableCell className="pl-6"><div className="text-sm font-medium text-[#1D1D1F]">{selectedPlanningForProducts.month}</div></TableCell>
+                          <TableCell><div className="text-[11px] text-[#86868B] font-bold">{selectedPlanningForProducts.source}</div></TableCell>
+                          <TableCell><div className="text-sm font-bold text-[#1D1D1F]">{selectedPlanningForProducts.category}</div></TableCell>
+                          <TableCell><div className="text-[11px] text-[#86868B] font-medium">{selectedPlanningForProducts.scene}</div></TableCell>
+                          <TableCell className="text-sm text-[#1D1D1F] max-w-[200px] truncate">{selectedPlanningForProducts.keywords}</TableCell>
+                          <TableCell className="text-center">
+                            <span className="text-sm font-bold text-[#FF6B00]">{selectedPlanningForProducts.uploadedCount || 0}</span>
+                            <span className="text-[#86868B] mx-1 text-sm">/</span>
+                            <span className="text-sm text-[#1D1D1F] font-bold">{selectedPlanningForProducts.plannedCount}</span>
+                          </TableCell>
+                          <TableCell className="text-sm text-[#1D1D1F] font-medium">{getUserDisplayName(selectedPlanningForProducts.ownerName)}</TableCell>
+                          <TableCell className="pr-6">
+                            <div className="text-sm text-[#1D1D1F] font-bold">{selectedPlanningForProducts.shop}</div>
+                            <div className="text-[11px] text-[#86868B] font-medium">{selectedPlanningForProducts.channel}</div>
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={8} className="h-48 text-center text-[#86868B] text-sm">暂无数据</TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </motion.div>
+              ) : (
+                <motion.div 
+                  key="links"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 overflow-hidden"
+                >
+                  <TooltipProvider>
+                    <Table className="w-full table-fixed">
+                      <TableHeader className="bg-[#F5F5F7]">
+                        <TableRow className="hover:bg-transparent border-none">
+                          <TableHead className="w-[60px] py-5 text-center">
+                            <Checkbox 
+                              checked={
+                                selectedPlanningForProducts && 
+                                products.filter(pr => pr.planningId === selectedPlanningForProducts.id).length > 0 &&
+                                products.filter(pr => pr.planningId === selectedPlanningForProducts.id).every(pr => selectedProductIds.includes(pr.id))
+                              }
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  const allIds = products.filter(pr => pr.planningId === selectedPlanningForProducts.id).map(pr => pr.id);
+                                  setSelectedProductIds(allIds);
+                                } else {
+                                  setSelectedProductIds([]);
+                                }
+                              }}
+                              className="rounded-[6px] w-5 h-5 data-[state=checked]:bg-[#FF6B00] data-[state=checked]:border-[#FF6B00]"
+                            />
+                          </TableHead>
+                          <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest pl-4 w-[180px]">商品信息</TableHead>
+                          <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center w-[160px]">类目/归属</TableHead>
+                          <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center w-[120px]">负责人</TableHead>
+                          <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center w-[150px]">店铺渠道</TableHead>
+                          <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center">SOP 全流程跟踪</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedPlanningForProducts && products.filter(pr => pr.planningId === selectedPlanningForProducts.id).length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={6} className="h-80 text-center text-[#86868B] text-sm bg-white">
+                              <div className="flex flex-col items-center gap-4">
+                                <div className="w-16 h-16 rounded-full bg-[#F5F5F7] flex items-center justify-center">
+                                  <Plus size={32} className="text-[#86868B] opacity-20" />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-lg font-bold text-[#1D1D1F]">暂无关联商品链接</span>
+                                  <span className="text-xs">请前往“链接管理”页面将商品 ID 绑定到此规划中</span>
+                                </div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          products.filter(pr => pr.planningId === selectedPlanningForProducts?.id).map((pr) => {
+                            // Priority: Product's own channel -> Planning's channel -> First available channel's SOP as fallback
+                            const channelKey = pr.channel || selectedPlanningForProducts?.channel;
+                            let channelSops = settings?.channels?.[channelKey]?.sop || [];
+                            
+                            // Fallback to avoid empty SOP column if data is missing
+                            if (channelSops.length === 0 && settings?.channels) {
+                              const firstChannel = Object.values(settings.channels)[0] as any;
+                              channelSops = firstChannel?.sop || [];
+                            }
+
+                            const uploadDate = pr.uploadTime ? new Date(pr.uploadTime).toISOString().split('T')[0] : '-';
+                            const days = calculateDays(pr.uploadTime);
+                            
+                            return (
+                              <TableRow key={pr.id} className="hover:bg-[#F5F5F7]/30 transition-colors border-black/5 group h-28">
+                                <TableCell className="text-center">
+                                  <Checkbox 
+                                    checked={selectedProductIds.includes(pr.id)}
+                                    onCheckedChange={(checked) => {
+                                      if (checked) setSelectedProductIds([...selectedProductIds, pr.id]);
+                                      else setSelectedProductIds(selectedProductIds.filter(id => id !== pr.id));
+                                    }}
+                                    className="rounded-[6px] w-5 h-5 data-[state=checked]:bg-[#FF6B00] data-[state=checked]:border-[#FF6B00]"
+                                  />
+                                </TableCell>
+                                <TableCell className="pl-4">
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono font-bold text-[14px] text-[#1D1D1F] tracking-tighter leading-none">{pr.productId}</span>
+                                    <button onClick={() => handleCopyProductIds(pr.productId)} className="text-[#A1A1A6] hover:text-[#FF6B00] transition-colors p-1 rounded-md hover:bg-[#FF6B00]/5">
+                                      <Copy size={12} />
+                                    </button>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-[#86868B] font-bold bg-[#F5F5F7] px-1.5 py-0.5 rounded-md cursor-default tracking-tight">{uploadDate}</span>
+                                    {days > 0 && (
+                                      <span className="text-[10px] text-[#FF6B00] font-extrabold tracking-tight underline underline-offset-2">上架第 {days} 天</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <div className="flex flex-col gap-1 items-center">
+                                  <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md inline-block max-w-full truncate">{pr.category || '-'}</span>
+                                  <div className="flex items-center gap-1.5 text-[10px] text-[#86868B] font-bold mt-0.5 opacity-80">
+                                    <span className="truncate max-w-[100px]">{pr.keywords || '-'}</span>
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <span className="text-[11px] font-bold text-[#1D1D1F] bg-[#F5F5F7] px-3 py-1 rounded-lg border border-black/[0.03]">{getUserDisplayName(pr.assignedOwner || pr.ownerName)}</span>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                <div className="flex flex-col gap-0.5 items-center">
+                                  <div className="text-[11px] font-black text-[#1D1D1F] tracking-tight truncate w-full">{pr.shop}</div>
+                                  <div className="text-[9px] text-[#86868B] font-bold uppercase tracking-widest">{pr.channel}</div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="pr-8">
+                                <div className="flex items-center justify-between w-full px-2">
+                                  {channelSops.map((step: string) => (
+                                    <div key={step} className="flex flex-col items-center gap-2.5 group/step flex-1">
+                                      <span className={cn("text-[10px] font-bold transition-colors tracking-tighter text-center", pr.steps?.[step] ? "text-[#FF6B00]" : "text-[#86868B] opacity-60")}>{step}</span>
+                                      <button 
+                                        onClick={() => handleToggleProductStep(pr.id, step, !!pr.steps?.[step])}
+                                        className={cn(
+                                          "w-8 h-8 rounded-full border-[2.5px] transition-all flex items-center justify-center scale-100 active:scale-90",
+                                          pr.steps?.[step] 
+                                            ? "bg-[#FF6B00] border-[#FF6B00] text-white shadow-[0_4px_12px_rgba(255,107,0,0.3)]" 
+                                            : "bg-white border-black/10 text-transparent hover:border-[#FF6B00]/40"
+                                        )}
+                                      >
+                                        {pr.steps?.[step] ? (
+                                          <Check size={16} strokeWidth={4} className="animate-in zoom-in duration-300" />
+                                        ) : (
+                                          <div className="w-1.5 h-1.5 rounded-full bg-black/10 group-hover/step:bg-[#FF6B00]/30 transition-colors" />
+                                        )}
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                            );
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TooltipProvider>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          <div className="px-8 py-6 border-t border-black/5 flex justify-end bg-white shrink-0">
+            <Button 
+              variant="default" 
+              onClick={() => setProductListDialogOpen(false)} 
+              className="rounded-xl h-12 px-12 bg-[#1D1D1F] hover:bg-black font-bold text-sm shadow-xl shadow-black/10 transition-all hover:-translate-y-0.5 active:translate-y-0"
+            >
+              完成并关闭
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
+
 
