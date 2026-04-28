@@ -389,7 +389,7 @@ export const BentoProgress: React.FC = () => {
         </div>
       ) : (
         <div className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden">
-          <table className="w-full">
+          <table className="w-full" translate="no">
             <thead className="bg-[#F5F5F7]">
               <tr>
                 <th className="text-left px-6 py-4 text-[11px] font-bold text-[#86868B] uppercase">{dimensionLabels[aggDimension]}</th>
@@ -557,15 +557,14 @@ export const BentoProgress: React.FC = () => {
                       </Table>
                     </motion.div>
                   ) : (
-                    <motion.div 
-                      key="links"
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
-                      className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 overflow-hidden"
-                    >
-                      <TooltipProvider>
-                        <Table className="w-full table-fixed">
+                      <motion.div 
+                        key="links"
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 overflow-hidden"
+                      >
+                        <Table className="w-full table-fixed" translate="no">
                           <TableHeader className="bg-[#F5F5F7]">
                             <TableRow className="hover:bg-transparent border-none">
                               <TableHead className="w-[60px] py-5 text-center">
@@ -693,8 +692,7 @@ export const BentoProgress: React.FC = () => {
                             )}
                           </TableBody>
                         </Table>
-                      </TooltipProvider>
-                    </motion.div>
+                      </motion.div>
                   )}
                 </AnimatePresence>
               </div>

@@ -803,7 +803,7 @@ export const ProductManagement: React.FC = () => {
 
       {viewMode === 'table' ? (
         <div className="bg-white rounded-[24px] shadow-sm border border-black/5 flex flex-col relative w-full min-w-0 overflow-x-auto">
-          <Table className="min-w-max w-full">
+          <Table className="min-w-max w-full" translate="no">
             <TableHeader className="bg-[#F5F5F7]">
               <TableRow className="hover:bg-transparent border-none">
                 <TableHead className="w-[50px] py-4 sticky left-0 z-20 bg-[#F5F5F7] shadow-[1px_0_0_0_rgba(0,0,0,0.05)]">
@@ -900,29 +900,23 @@ export const ProductManagement: React.FC = () => {
                     </div>
                   </TableCell>
                   <TableCell className="min-w-[100px]">
-                    <Select value={p.result || ''} onValueChange={(val) => updateResult(p.id, val)}>
-                      <Tooltip content={judgments.find((j: any) => j.label === p.result)?.definition || '暂无定义'}>
+                    <Tooltip content={judgments.find((j: any) => j.label === p.result)?.definition || '暂无定义'}>
+                      <Select value={p.result || ''} onValueChange={(val) => updateResult(p.id, val)}>
                         <SelectTrigger 
                           className="w-[80px] h-8 rounded-lg border-none shadow-none text-xs font-bold"
                           style={getResultStyle(p.result)}
                         >
                           <SelectValue>{p.result || '待设置'}</SelectValue>
                         </SelectTrigger>
-                      </Tooltip>
-                      <SelectContent className="rounded-xl">
-                        {judgments.map((j: any) => (
-                          <React.Fragment key={j.label}>
-                            <Tooltip content={j.definition} side="right">
-                              <SelectItem value={j.label} className="text-xs">
-                                <div className="flex items-center justify-between w-full gap-2">
-                                  <span>{j.label}</span>
-                                </div>
-                              </SelectItem>
-                            </Tooltip>
-                          </React.Fragment>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                        <SelectContent className="rounded-xl">
+                          {judgments.map((j: any) => (
+                            <SelectItem key={j.label} value={j.label} className="text-xs">
+                              {j.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Tooltip>
                   </TableCell>
                   <TableCell className="min-w-[140px]" onDoubleClick={(e) => e.stopPropagation()}>
                     <Popover>
@@ -1011,25 +1005,21 @@ export const ProductManagement: React.FC = () => {
                   </div>
                   <p className="text-xs text-[#86868B] font-bold mt-1">{p.category} {p.scene ? `· ${p.scene}` : ''}</p>
                 </div>
-                <Select value={p.result || ''} onValueChange={(val) => updateResult(p.id, val)}>
-                  <Tooltip content={judgments.find((j: any) => j.label === p.result)?.definition || '暂无定义'}>
+                <Tooltip content={judgments.find((j: any) => j.label === p.result)?.definition || '暂无定义'}>
+                  <Select value={p.result || ''} onValueChange={(val) => updateResult(p.id, val)}>
                     <SelectTrigger 
                       className="w-[80px] h-7 rounded-lg border-none shadow-none text-xs font-bold"
                       style={getResultStyle(p.result)}
                     >
                       <SelectValue>{p.result || '待设置'}</SelectValue>
                     </SelectTrigger>
-                  </Tooltip>
-                  <SelectContent className="rounded-xl">
-                    {judgments.map((j: any) => (
-                      <React.Fragment key={j.label}>
-                        <Tooltip content={j.definition} side="right">
-                          <SelectItem value={j.label} className="text-xs">{j.label}</SelectItem>
-                        </Tooltip>
-                      </React.Fragment>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    <SelectContent className="rounded-xl">
+                      {judgments.map((j: any) => (
+                        <SelectItem key={j.label} value={j.label} className="text-xs">{j.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Tooltip>
               </div>
               <div className="flex flex-wrap gap-2 mb-4">
                 <span className="text-xs px-2 py-0.5 rounded-lg bg-[#F5F5F7] text-[#86868B] font-bold border border-black/5">{p.channel}</span>
@@ -1254,7 +1244,7 @@ export const ProductManagement: React.FC = () => {
                   exit={{ opacity: 0, x: 20 }}
                   className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden w-full"
                 >
-                  <Table className="w-full">
+                  <Table className="w-full" translate="no">
                     <TableHeader className="bg-[#F5F5F7]">
                       <TableRow className="hover:bg-transparent border-none">
                         <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 pl-6">月份</TableHead>
@@ -1302,7 +1292,7 @@ export const ProductManagement: React.FC = () => {
                   exit={{ opacity: 0, x: -20 }}
                   className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 overflow-hidden w-full"
                 >
-                  <Table className="w-full">
+                  <Table className="w-full" translate="no">
                     <TableHeader className="bg-[#F5F5F7]">
                       <TableRow className="hover:bg-transparent border-none">
                         <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest pl-6 w-[180px]">商品信息</TableHead>

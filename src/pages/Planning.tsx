@@ -876,7 +876,7 @@ export const Planning: React.FC = () => {
                   exit={{ opacity: 0, x: 20 }}
                   className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden w-full"
                 >
-                  <Table className="w-full">
+                  <Table className="w-full" translate="no">
                     <TableHeader className="bg-[#F5F5F7]">
                       <TableRow className="hover:bg-transparent border-none">
                         <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 pl-6">月份</TableHead>
@@ -924,8 +924,7 @@ export const Planning: React.FC = () => {
                   exit={{ opacity: 0, x: -20 }}
                   className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 overflow-hidden w-full"
                 >
-                  <TooltipProvider>
-                    <Table className="w-full">
+                  <Table className="w-full" translate="no">
                       <TableHeader className="bg-[#F5F5F7]">
                         <TableRow className="hover:bg-transparent border-none">
                           <TableHead className="w-[60px] py-5 text-center">
@@ -1058,7 +1057,6 @@ export const Planning: React.FC = () => {
                         )}
                       </TableBody>
                     </Table>
-                  </TooltipProvider>
                 </motion.div>
               )}
             </AnimatePresence>

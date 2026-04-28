@@ -26,6 +26,11 @@
   --radius-sm: calc(var(--radius) - 4px);
 }
 
+/* Prevent Google Translate from breaking React nodes on critical text elements */
+span, div, p, button, th, td {
+  unicode-bidi: isolate;
+}
+
 @layer base {
   :root {
     --background: 0 0% 96%; /* #F5F5F7 */

@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './components/AuthContext';
 import { SettingsProvider } from './components/SettingsContext';
 import { Layout } from './components/Layout';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { LoginPage } from './pages/LoginPage';
 import { Dashboard } from './pages/Dashboard';
 import { Planning } from './pages/Planning';
@@ -122,19 +123,21 @@ export default function App() {
   return (
     <AuthProvider>
       <SettingsProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
-            <Route path="/planning" element={<AuthGuard><Planning /></AuthGuard>} />
-            <Route path="/products" element={<AuthGuard><ProductManagement /></AuthGuard>} />
-            <Route path="/progress" element={<AuthGuard><BentoProgress /></AuthGuard>} />
-            <Route path="/brainstorming" element={<AuthGuard><Brainstorming /></AuthGuard>} />
-            <Route path="/brainstorming/:id" element={<AuthGuard><Brainstorming /></AuthGuard>} />
-            <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
-          </Routes>
-        </BrowserRouter>
-        <Toaster position="top-center" />
+        <TooltipProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
+              <Route path="/planning" element={<AuthGuard><Planning /></AuthGuard>} />
+              <Route path="/products" element={<AuthGuard><ProductManagement /></AuthGuard>} />
+              <Route path="/progress" element={<AuthGuard><BentoProgress /></AuthGuard>} />
+              <Route path="/brainstorming" element={<AuthGuard><Brainstorming /></AuthGuard>} />
+              <Route path="/brainstorming/:id" element={<AuthGuard><Brainstorming /></AuthGuard>} />
+              <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
+            </Routes>
+          </BrowserRouter>
+          <Toaster position="top-center" />
+        </TooltipProvider>
       </SettingsProvider>
     </AuthProvider>
   );
