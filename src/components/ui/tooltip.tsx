@@ -40,9 +40,11 @@ interface TooltipProps extends TooltipPrimitive.Root.Props {
 }
 
 function Tooltip({ children, content, side, ...props }: TooltipProps) {
+  const trigger = React.isValidElement(children) ? children : <span>{children}</span>
+
   return (
     <TooltipRoot {...props}>
-      <TooltipTrigger render={children} />
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
       <TooltipContent side={side}>{content}</TooltipContent>
     </TooltipRoot>
   )

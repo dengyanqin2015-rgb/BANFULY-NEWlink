@@ -811,7 +811,7 @@ export const Planning: React.FC = () => {
       <Dialog open={productListDialogOpen} onOpenChange={setProductListDialogOpen}>
         <DialogContent className={cn(
           "max-h-[92vh] overflow-hidden rounded-[32px] p-0 flex flex-col gap-0 border-none shadow-2xl transition-all duration-300",
-          activeTab === 'planning' ? "max-w-[95vw] xl:max-w-[1300px]" : "max-w-[98vw] w-[1700px] sm:max-w-[95vw] md:max-w-[1700px]"
+          "max-w-[98vw] w-[1800px] sm:max-w-[96vw] md:max-w-[1800px]"
         )}>
           <DialogHeader className="px-8 py-6 border-b border-black/5 flex flex-row items-center justify-between shrink-0">
             <div className="flex flex-col gap-1.5">
@@ -874,9 +874,9 @@ export const Planning: React.FC = () => {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
-                  className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden"
+                  className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden w-full"
                 >
-                  <Table className="min-w-[900px]">
+                  <Table className="w-full">
                     <TableHeader className="bg-[#F5F5F7]">
                       <TableRow className="hover:bg-transparent border-none">
                         <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 pl-6">月份</TableHead>
@@ -922,10 +922,10 @@ export const Planning: React.FC = () => {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 overflow-hidden"
+                  className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 overflow-hidden w-full"
                 >
                   <TooltipProvider>
-                    <Table className="w-full table-fixed">
+                    <Table className="w-full">
                       <TableHeader className="bg-[#F5F5F7]">
                         <TableRow className="hover:bg-transparent border-none">
                           <TableHead className="w-[60px] py-5 text-center">
@@ -950,7 +950,7 @@ export const Planning: React.FC = () => {
                           <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center w-[160px]">类目/归属</TableHead>
                           <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center w-[120px]">负责人</TableHead>
                           <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center w-[150px]">店铺渠道</TableHead>
-                          <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center">SOP 全流程跟踪</TableHead>
+                          <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center min-w-[600px]">SOP 全流程跟踪</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

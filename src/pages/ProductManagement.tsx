@@ -651,11 +651,11 @@ export const ProductManagement: React.FC = () => {
           </div>
           <div className="flex items-center gap-3 pl-6 ml-2">
             <Popover>
-              <PopoverTrigger render={
+              <PopoverTrigger asChild>
                 <Button variant="outline" size="sm" className="rounded-xl h-10 gap-2 border-black/10 px-5 text-[#1D1D1F] font-bold">
                   导入/导出 <ChevronDown size={16} className="opacity-50" />
                 </Button>
-              } />
+              </PopoverTrigger>
               <PopoverContent className="w-56 p-2 rounded-2xl shadow-xl z-50 bg-white border border-black/10 flex flex-col gap-1" align="end">
                 <div className="px-3 py-1.5">
                   <p className="text-[10px] font-bold text-[#86868B] uppercase tracking-wider">数据导出</p>
@@ -755,11 +755,11 @@ export const ProductManagement: React.FC = () => {
           <div className="flex items-center gap-2">
             {selectedChannels.length > 1 ? (
               <Popover>
-                <PopoverTrigger render={
+                <PopoverTrigger asChild>
                   <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs hover:bg-white/10">
                     <Copy size={14} /> 复制 ID (需选渠道)
                   </Button>
-                } />
+                </PopoverTrigger>
                 <PopoverContent className="w-40 p-2 rounded-xl bg-[#1D1D1F] border-white/10 text-white" side="top">
                   <div className="space-y-1">
                     <p className="text-[10px] font-bold text-white/40 px-2 pb-1">选择要复制的渠道</p>
@@ -926,7 +926,7 @@ export const ProductManagement: React.FC = () => {
                   </TableCell>
                   <TableCell className="min-w-[140px]" onDoubleClick={(e) => e.stopPropagation()}>
                     <Popover>
-                       <PopoverTrigger render={
+                       <PopoverTrigger asChild>
                           <button type="button"
                              className="text-left bg-transparent border-none outline-none w-[110px] cursor-pointer hover:bg-black/5 px-2 py-1.5 rounded-lg transition-colors flex items-start h-[42px]" 
                              onClick={(e) => e.stopPropagation()}
@@ -938,7 +938,7 @@ export const ProductManagement: React.FC = () => {
                                 </Tooltip>
                              ) : <div className="flex items-center gap-1 text-[13px] text-[#86868B] opacity-70 hover:opacity-100 transition-opacity"><Edit2 size={12} /><span>添加备注</span></div>}
                           </button>
-                       } />
+                       </PopoverTrigger>
                        <PopoverContent className="w-80 p-5 rounded-2xl shadow-xl z-50 bg-white border border-black/10 flex flex-col gap-3">
                            <p className="text-[15px] font-bold text-[#1D1D1F] flex items-center justify-between">
                               更新备注
@@ -1196,7 +1196,7 @@ export const ProductManagement: React.FC = () => {
       <Dialog open={productListDialogOpen} onOpenChange={setProductListDialogOpen}>
         <DialogContent className={cn(
           "max-h-[92vh] overflow-hidden rounded-[32px] p-0 flex flex-col gap-0 border-none shadow-2xl transition-all duration-300",
-          activeTab === 'planning' ? "max-w-[95vw] xl:max-w-[1300px]" : "max-w-[98vw] w-[1700px] sm:max-w-[95vw] md:max-w-[1700px]"
+          "max-w-[98vw] w-[1800px] sm:max-w-[96vw] md:max-w-[1800px]"
         )}>
           <DialogHeader className="px-8 py-6 border-b border-black/5 flex flex-row items-center justify-between shrink-0">
             <div className="flex flex-col gap-1.5">
@@ -1252,9 +1252,9 @@ export const ProductManagement: React.FC = () => {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: 20 }}
-                  className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden"
+                  className="bg-white rounded-[24px] shadow-sm border border-black/5 overflow-hidden w-full"
                 >
-                  <Table className="min-w-[900px]">
+                  <Table className="w-full">
                     <TableHeader className="bg-[#F5F5F7]">
                       <TableRow className="hover:bg-transparent border-none">
                         <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-4 pl-6">月份</TableHead>
@@ -1300,16 +1300,16 @@ export const ProductManagement: React.FC = () => {
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 overflow-hidden"
+                  className="bg-white rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-black/5 overflow-hidden w-full"
                 >
-                  <Table className="w-full table-fixed">
+                  <Table className="w-full">
                     <TableHeader className="bg-[#F5F5F7]">
                       <TableRow className="hover:bg-transparent border-none">
                         <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest pl-6 w-[180px]">商品信息</TableHead>
                         <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center w-[160px]">类目/归属</TableHead>
                         <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center w-[120px]">负责人</TableHead>
                         <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center w-[150px]">店铺渠道</TableHead>
-                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center">SOP 全流程跟踪</TableHead>
+                        <TableHead className="text-[11px] font-bold text-[#86868B] uppercase py-5 tracking-widest text-center min-w-[600px]">SOP 全流程跟踪</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
