@@ -152,23 +152,6 @@ export const Settings: React.FC = () => {
     };
   }, [currentCompanyId, isAdmin, isSuperAdmin]);
 
-  // Migration for allowedShops
-  useEffect(() => {
-    if (isAdmin && users.length > 0) {
-      users.forEach(async (u) => {
-        if (u.permissions && Array.isArray(u.permissions) && !u.allowedShops) {
-           const allowedShops = u.permissions.map((p: any) => p.shop);
-           try {
-             await setDoc(doc(db, 'users', u.id), { allowedShops }, { merge: true });
-             console.log(`Migrated allowedShops for user ${u.id}`);
-           } catch(e) {
-             console.error("Migration failed", e);
-           }
-        }
-      });
-    }
-  }, [isAdmin, users]);
-
   const saveSettings = async (newSettings: any) => {
     const settingDocId = currentCompanyId !== 'HQ' ? currentCompanyId : 'global';
     await setDoc(doc(db, 'settings', settingDocId), newSettings);

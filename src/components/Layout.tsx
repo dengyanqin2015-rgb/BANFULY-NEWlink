@@ -32,36 +32,6 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           await setDoc(doc(db, 'companies', 'HQ'), { name: '总公司 (HQ)', createdAt: new Date().toISOString() });
           await setDoc(doc(db, 'companies', 'branch_001'), { name: '演示分公司', createdAt: new Date().toISOString() });
         }
-
-        // Data Migration: Set missing companyId to 'HQ'
-        const collectionsToMigrate = ['plannings', 'products', 'mindmaps', 'users'];
-        for (const col of collectionsToMigrate) {
-          try {
-            const snap = await getDocs(collection(db, col));
-            const batch = writeBatch(db);
-            let count = 0;
-            snap.forEach(d => {
-              if (col === 'users') {
-                 // don't overwrite if it already exists. For users, some might have companyId.
-                 if (!d.data().companyId) {
-                   batch.update(d.ref, { companyId: 'HQ' });
-                   count++;
-                 }
-              } else {
-                 if (!d.data().companyId) {
-                   batch.update(d.ref, { companyId: 'HQ' });
-                   count++;
-                 }
-              }
-            });
-            if (count > 0) {
-              await batch.commit();
-              console.log(`Migrated ${count} docs in ${col} to HQ`);
-            }
-          } catch(e) {
-            console.error('Migration failed for', col, e);
-          }
-        }
       } catch (e) {
         console.error('Bootstrap failed', e);
       }

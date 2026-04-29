@@ -406,7 +406,8 @@ const MindMapEdge = ({ id, sourceX, sourceY, targetX, targetY, style = {}, data 
 const nodeTypes = { mindmap: MindMapNode };
 const edgeTypes = { mindmap: MindMapEdge };
 
-const MindMapEditor = ({ id, maps, profile, isAdmin, isSuperAdmin, currentCompanyId, users, getUserDisplayName, navigate }: any) => {
+const MindMapEditor = ({ id, maps, profile, isAdmin, isSuperAdmin, currentCompanyId, users, getUserDisplayName }: any) => {
+  const navigate = useNavigate();
   const { screenToFlowPosition, fitView, getNodes, getEdges } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -539,7 +540,7 @@ const MindMapEditor = ({ id, maps, profile, isAdmin, isSuperAdmin, currentCompan
     
     const timer = setTimeout(() => {
       handleSave(true);
-    }, 2000); // Auto-save after 2 seconds of inactivity
+    }, 15000); // Increased to 15 seconds of inactivity to save quota
 
     return () => clearTimeout(timer);
   }, [nodes, edges, title, edgeStyle, spawnDirection, id, handleSave]);
@@ -568,10 +569,10 @@ const MindMapEditor = ({ id, maps, profile, isAdmin, isSuperAdmin, currentCompan
   const canManage = !currentMap || currentMap.ownerId === profile?.uid || isAdmin || isSuperAdmin || 
                   (currentMap.permissions && currentMap.permissions[profile?.uid || ''] === 'manager');
 
-  const handleExit = async () => {
+  const handleExit = () => {
     if (canEdit && id && id !== 'new') {
-      await handleSave(true);
-      toast.success('已为您自动保存修改', { duration: 2000 });
+      handleSave(true);
+      toast.success('已为您自动保存修改', { duration: 1500 });
     }
     navigate('/brainstorming');
   };
@@ -1376,7 +1377,6 @@ export const Brainstorming: React.FC = () => {
           currentCompanyId={currentCompanyId}
           users={users}
           getUserDisplayName={getUserDisplayName}
-          navigate={navigate}
         />
       </ReactFlowProvider>
     );

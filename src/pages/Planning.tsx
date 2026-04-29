@@ -107,18 +107,6 @@ export const Planning: React.FC = () => {
     };
   }, [isAdmin, isSuperAdmin, profile, currentCompanyId]);
 
-  // Auto-fix discrepancies in uploadedCount
-  useEffect(() => {
-    if (plannings.length > 0 && products.length > 0) {
-      plannings.forEach(p => {
-        const actualCount = products.filter(pr => pr.planningId === p.id).length;
-        if (p.uploadedCount !== actualCount) {
-          updateDoc(doc(db, 'plannings', p.id), { uploadedCount: actualCount }).catch(() => {});
-        }
-      });
-    }
-  }, [plannings, products]);
-
   const handleAdd = async () => {
     if (!formData.channel || !formData.shop) return toast.error('请选择渠道和店铺');
     try {

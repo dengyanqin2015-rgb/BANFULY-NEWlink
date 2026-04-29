@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { toast } from 'sonner';
 import { db } from './firebase';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, writeBatch, doc } from 'firebase/firestore';
 import { logOperation } from './logger';
 
 export const exportProductsToExcel = (
@@ -201,56 +201,67 @@ export const handleProductImport = async (
     }
     const sopKeys = Array.from(allExpectedSteps);
 
-    let count = 0;
     const importedDocIds: string[] = [];
-    for (const item of data as any[]) {
-      try {
-        const rawId = String(item['商品 ID (必填)'] || item['商品 ID'] || '');
-        const rawChannel = item['渠道 (必填)'] || item['渠道'];
-        const rawShop = item['店铺 (必填)'] || item['店铺'];
-        
-        if (!rawId || rawId.trim() === '') continue;
+    const batchSize = 400;
+    
+    for (let i = 0; i < data.length; i += batchSize) {
+      const chunk = data.slice(i, i + batchSize);
+      const batch = writeBatch(db);
+      
+      for (const item of chunk as any[]) {
+        try {
+          const rawId = String(item['商品 ID (必填)'] || item['商品 ID'] || '');
+          const rawChannel = item['渠道 (必填)'] || item['渠道'];
+          const rawShop = item['店铺 (必填)'] || item['店铺'];
+          
+          if (!rawId || rawId.trim() === '') continue;
 
-        const channelSop = settings?.channels?.[rawChannel]?.sop || [];
-        
-        const initialSteps: any = {};
-        channelSop.forEach((step: string) => {
-          initialSteps[step] = false;
-        });
+          const channelSop = settings?.channels?.[rawChannel]?.sop || [];
+          
+          const initialSteps: any = {};
+          channelSop.forEach((step: string) => {
+            initialSteps[step] = false;
+          });
 
-        sopKeys.forEach(step => {
-           if (item[step] !== undefined && channelSop.includes(step)) {
-              const val = String(item[step]).trim().toUpperCase();
-              initialSteps[step] = (val === '是' || val === 'TRUE' || val === '1' || val === '完成' || val === 'Y' || val === 'YES');
-           }
-        });
+          sopKeys.forEach(step => {
+             if (item[step] !== undefined && channelSop.includes(step)) {
+                const val = String(item[step]).trim().toUpperCase();
+                initialSteps[step] = (val === '是' || val === 'TRUE' || val === '1' || val === '完成' || val === 'Y' || val === 'YES');
+             }
+          });
 
-        const docRef = await addDoc(collection(db, 'products'), {
-          productId: rawId.trim(),
-          sku: String(item['SKU'] || ''),
-          category: item['品类'] || '',
-          scene: item['场景'] || '',
-          keywords: item['核心关键词'] || '',
-          source: item['商机来源'] || item['来源'] || '',
-          channel: rawChannel || '',
-          shop: rawShop || '',
-          month: item['月份 (例如: 2024-05)'] || item['月份'] || new Date().toISOString().slice(0, 7),
-          assignedOwner: item['负责人 (必填)'] || item['负责人'] || profile.email,
-          ownerId: profile.uid,
-          ownerName: profile.displayName || profile.email,
-          companyId: currentCompanyId,
-          steps: initialSteps,
-          notes: item['备注'] || '',
-          result: settings?.linkJudgments?.[0]?.label || '待设置',
-          createdAt: new Date().toISOString(),
-          uploadTime: new Date().toISOString()
-        });
-        importedDocIds.push(docRef.id);
-        await logOperation('CREATE', 'PRODUCT', docRef.id, `导入商品链接: ${rawId}`, profile);
-        count++;
-      } catch (err) {}
+          const newDocRef = doc(collection(db, 'products'));
+          batch.set(newDocRef, {
+            productId: rawId.trim(),
+            sku: String(item['SKU'] || ''),
+            category: item['品类'] || '',
+            scene: item['场景'] || '',
+            keywords: item['核心关键词'] || '',
+            source: item['商机来源'] || item['来源'] || '',
+            channel: rawChannel || '',
+            shop: rawShop || '',
+            month: item['月份 (例如: 2024-05)'] || item['月份'] || new Date().toISOString().slice(0, 7),
+            assignedOwner: item['负责人 (必填)'] || item['负责人'] || profile.email,
+            ownerId: profile.uid,
+            ownerName: profile.displayName || profile.email,
+            companyId: currentCompanyId,
+            steps: initialSteps,
+            notes: item['备注'] || '',
+            result: settings?.linkJudgments?.[0]?.label || '待设置',
+            createdAt: new Date().toISOString(),
+            uploadTime: new Date().toISOString()
+          });
+          importedDocIds.push(newDocRef.id);
+        } catch (err) {}
+      }
+      await batch.commit();
     }
-    toast.success(`成功导入 ${count} 条数据`);
+    
+    if (importedDocIds.length > 0) {
+      await logOperation('CREATE', 'PRODUCT', 'BATCH_IMPORT', `批量导入商品链接: ${importedDocIds.length}条`, profile);
+    }
+    
+    toast.success(`成功导入 ${importedDocIds.length} 条数据`);
     onComplete(importedDocIds);
   };
   reader.readAsBinaryString(file);

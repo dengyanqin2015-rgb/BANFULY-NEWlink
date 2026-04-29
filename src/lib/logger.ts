@@ -11,20 +11,13 @@ export const logOperation = async (
   details: string,
   profile: any
 ) => {
+  // Disabling cloud logging temporarily to save Firestore quota
+  console.log(`[LOG] ${action} ${entity} ${entityId}: ${details}`, profile?.email);
+  return;
+  
+  /* 
   try {
     if (!profile) return;
-    
-    await addDoc(collection(db, 'logs'), {
-      action,
-      entity,
-      entityId,
-      details,
-      operatorId: profile.uid,
-      operatorName: profile.displayName || profile.username || 'Unknown',
-      companyId: profile.companyId || 'HQ',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Failed to log operation:', error);
-  }
+    ...
+  */
 };
