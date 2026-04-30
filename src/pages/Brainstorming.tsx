@@ -49,11 +49,55 @@ const estimateWidth = (node: any) => {
   const fontSize = node.data.fontSize || 14;
   // Buffer for padding and potential font variations
   const contentWidth = Math.max(2, charCount) * fontSize;
-  const baseWidth = contentWidth + 24; // Halved from 48 to reduce excessive whitespace
+  const baseWidth = contentWidth + 32; // Increased padding slightly
   
-  if (node.id === 'root') return baseWidth + 40;
-  if (node.data.parentId === 'root') return baseWidth + 20; 
-  return baseWidth;
+  if (node.id === 'root') return Math.max(160, baseWidth + 40);
+  if (node.data.parentId === 'root') return Math.max(120, baseWidth + 20); 
+  return Math.max(80, baseWidth);
+};
+
+const estimateHeight = (node: any) => {
+  const fontSize = node.data.fontSize || 14;
+  return Math.max(40, fontSize * 1.5 + 16);
+};
+
+const parseIndentedText = (text: string) => {
+  const lines = text.split('\n').filter(l => l.trim() !== '');
+  if (lines.length === 0) return null;
+
+  const result: { label: string; level: number; rawIndent: number }[] = [];
+  lines.forEach(line => {
+    // Check indentation: tabs or spaces
+    const match = line.match(/^(\t*| *)/);
+    const indent = match ? match[0] : '';
+    let level = 0;
+    
+    if (indent.includes('\t')) {
+      level = (indent.match(/\t/g) || []).length;
+    } else if (indent.length > 0) {
+      // Find the first non-zero space indentation to determine step
+      level = indent.length; 
+    }
+    
+    result.push({ label: line.trim(), level, rawIndent: indent.length });
+  });
+
+  // Level normalization for spaces
+  if (result.some(r => r.level > 0 && !lines[result.indexOf(r)].startsWith('\t'))) {
+    const nonZeroIndents = result.filter(r => r.rawIndent > 0).map(r => r.rawIndent);
+    if (nonZeroIndents.length > 0) {
+      const minIndentStep = Math.min(...nonZeroIndents);
+      result.forEach(r => {
+        if (r.rawIndent > 0) r.level = Math.round(r.rawIndent / minIndentStep);
+      });
+    }
+  }
+
+  // Final normalization (ensure it starts at 0 and increments logically)
+  const minLvl = Math.min(...result.map(r => r.level));
+  result.forEach(r => r.level -= minLvl);
+
+  return result;
 };
 
 const layoutMindMap = (nodes: any[], globalsDirection: string = 'right') => {
@@ -70,7 +114,7 @@ const layoutMindMap = (nodes: any[], globalsDirection: string = 'right') => {
     }
   });
 
-  const nodeInfo = new Map<string, { depth: number; direction: string; width: number }>();
+  const nodeInfo = new Map<string, { depth: number; direction: string; width: number; height: number }>();
   const maxContentWidthPerDepth = new Map<string, number>();
 
   const traverseMeta = (id: string, depth: number, direction: string) => {
@@ -78,8 +122,9 @@ const layoutMindMap = (nodes: any[], globalsDirection: string = 'right') => {
     if (!node) return;
     
     const width = estimateWidth(node);
+    const height = estimateHeight(node);
     const dir = id === 'root' ? 'root' : direction;
-    nodeInfo.set(id, { depth, direction: dir, width });
+    nodeInfo.set(id, { depth, direction: dir, width, height });
 
     if (!node.hidden) {
       const children = childrenMap.get(id) || [];
@@ -101,19 +146,27 @@ const layoutMindMap = (nodes: any[], globalsDirection: string = 'right') => {
   traverseMeta('root', 0, globalsDirection);
 
   const getSubtreeHeight = (id: string): number => {
+    const node = nodeMap.get(id);
+    if (!node) return 0;
     const children = childrenMap.get(id) || [];
-    if (children.length === 0) return 40;
-    const h = children.reduce((sum: number, cid: string) => sum + getSubtreeHeight(cid), 0);
-    return Math.max(40, h + (children.length - 1) * 24); 
+    const nodeSelfHeight = estimateHeight(node);
+    
+    if (children.length === 0) return nodeSelfHeight;
+    
+    const childrenTotalHeight = children.reduce((sum: number, cid: string) => sum + getSubtreeHeight(cid), 0);
+    const gapHeight = (children.length - 1) * 24;
+    
+    return Math.max(nodeSelfHeight, childrenTotalHeight + gapHeight); 
   };
 
-  const minGapX = 140; // Adjusted based on 84px link + average widths
+  const minGapX = 140; 
 
   const assignPositions = (id: string, x: number, y: number, direction: string) => {
     const node = nodeMap.get(id);
     if (!node) return;
     
-    node.position = { x, y: y - 20 };
+    const selfHeight = estimateHeight(node);
+    node.position = { x, y: y - selfHeight / 2 };
 
     const children = childrenMap.get(id) || [];
     if (children.length === 0) return;
@@ -122,35 +175,33 @@ const layoutMindMap = (nodes: any[], globalsDirection: string = 'right') => {
     const key = `${info?.depth}_${info?.direction}`;
     const levelMaxWidth = maxContentWidthPerDepth.get(key) || 120;
     
-    // To align children correctly at the same X coordinate (Column alignment):
     const nextLevelKey = `${(info?.depth || 0) + 1}_${info?.direction}`;
     const nextLevelMaxWidth = maxContentWidthPerDepth.get(nextLevelKey) || 120;
     
-    // Total gap between center of parent and center of child
-    // 84px represents 7 grid cells (gap=12) for the visible link length
     const gapX = Math.max(minGapX, (levelMaxWidth / 2) + 84 + (nextLevelMaxWidth / 2));
 
-    let totalH = getSubtreeHeight(id);
-    let startY = y - totalH / 2;
+    const totalSubtreeH = getSubtreeHeight(id);
+    let currentY = y - totalSubtreeH / 2;
 
     children.forEach((cid: string) => {
-      const cHeight = getSubtreeHeight(cid);
-      const childY = startY + cHeight / 2;
+      const childSubtreeHeight = getSubtreeHeight(cid);
+      const childCenterY = currentY + childSubtreeHeight / 2;
       const childNode = nodeMap.get(cid);
       const childDir = id === 'root' ? (childNode.data.direction || globalsDirection) : direction;
       
       const nextX = childDir === 'left' ? x - gapX : x + gapX;
-      assignPositions(cid, nextX, childY, childDir);
-      startY += cHeight + 24;
+      assignPositions(cid, nextX, childCenterY, childDir);
+      currentY += childSubtreeHeight + 24;
     });
   };
 
   const rootNode = nodeMap.get('root');
   if (rootNode) {
-    assignPositions('root', rootNode.position.x, rootNode.position.y + 20, globalsDirection);
+    // Root position is generally considered the center of its own height
+    const rootH = estimateHeight(rootNode);
+    assignPositions('root', rootNode.position.x, rootNode.position.y + rootH / 2, globalsDirection);
   }
 
-  // Also handle drifting independent nodes (double-clicked靈感)
   nodes.forEach(n => {
     if (!n.data.parentId && n.id !== 'root') {
       const existing = nodeMap.get(n.id);
@@ -1048,8 +1099,78 @@ const MindMapEditor = ({ id, maps, profile, isAdmin, isSuperAdmin, currentCompan
     }
   };
 
+  const onPaste = useCallback((e: React.ClipboardEvent) => {
+    if (!canEdit) return;
+    
+    // Skip if target is an input or textarea (let default paste happen there)
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+    
+    const pastedText = e.clipboardData.getData('text/plain');
+    if (!pastedText) return;
+
+    // Check if it's multiple lines and might be indented
+    const lines = pastedText.split('\n').filter(l => l.trim() !== '');
+    if (lines.length > 1 || (lines.length === 1 && pastedText.includes('\t'))) {
+      const parsed = parseIndentedText(pastedText);
+      if (!parsed || parsed.length < 1) return;
+
+      e.preventDefault();
+      pushToHistory(nodes, edges);
+
+      const targetParent = nodes.find(n => n.selected) || nodes.find(n => n.id === 'root');
+      if (!targetParent) return;
+
+      const newNodes: Node[] = [];
+      const newEdges: Edge[] = [];
+      const levelStack: string[] = []; // Stores the parent ID for each level
+
+      parsed.forEach((item, index) => {
+        const nodeId = `node_${Date.now()}_${index}_${Math.random().toString(36).substring(2, 5)}`;
+        
+        // Find parent: it's the node at level item.level - 1
+        let parentId = targetParent.id;
+        if (item.level > 0) {
+          parentId = levelStack[item.level - 1] || targetParent.id;
+        }
+
+        // Update stack for current level
+        levelStack[item.level] = nodeId;
+
+        const direction = parentId === 'root' ? spawnDirection : (nodes.find(n => n.id === parentId)?.data.direction || spawnDirection);
+        
+        newNodes.push({
+          id: nodeId,
+          type: 'mindmap',
+          position: { x: targetParent.position.x, y: targetParent.position.y }, // Layout will fix this
+          data: { 
+            label: item.label, 
+            parentId, 
+            direction,
+            onDataChange: (id: string, newData: any) => handleNodeDataChange(id, newData),
+            ...globalNodeStyle
+          }
+        });
+
+        newEdges.push({
+          id: `edge_${parentId}_${nodeId}`,
+          source: parentId,
+          target: nodeId,
+          sourceHandle: direction,
+          targetHandle: direction === 'left' ? 'right' : 'left',
+          type: 'mindmap',
+          style: { stroke: '#4F46E5', strokeWidth: 2 }
+        });
+      });
+
+      setNodes(nds => layoutMindMap([...nds, ...newNodes], spawnDirection));
+      setEdges(eds => [...eds, ...newEdges]);
+      toast.success(`已导入 ${newNodes.length} 个节点`);
+    }
+  }, [canEdit, nodes, edges, spawnDirection, globalNodeStyle, handleNodeDataChange, pushToHistory, setNodes, setEdges]);
+
   return (
-    <div className="h-[calc(100vh-100px)] flex flex-col bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden">
+    <div className="h-[calc(100vh-100px)] flex flex-col bg-white rounded-3xl shadow-sm border border-black/5 overflow-hidden" onPaste={onPaste}>
         <div className="h-16 border-b border-black/5 px-6 flex items-center justify-between shrink-0 bg-[#F5F5F7]/30">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={handleExit}>
