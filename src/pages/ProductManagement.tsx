@@ -408,11 +408,20 @@ export const ProductManagement: React.FC = () => {
     return userMap[emailOrName] || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
   };
 
+  const planningsMap = useMemo(() => {
+    const map = new Map();
+    plannings.forEach(p => map.set(p.id, p));
+    return map;
+  }, [plannings]);
+
   const enrichedProducts = useMemo(() => {
     return products.map(p => {
-      const relatedPlanning = p.planningId ? plannings.find(plan => plan.id === p.planningId) : null;
+      const relatedPlanning = p.planningId ? planningsMap.get(p.planningId) : null;
       
-      const timeToUse = p.uploadTime || p.createdAt || p.month;
+      // User specifically requested to filter "链接管理页面" by the link's own time, not the planning's time
+      // So we prioritize uploadTime and createdAt over planning month
+      let timeToUse = p.uploadTime || p.createdAt;
+      
       let pYearPart = null;
       let pMonthPart = null;
       let pDayPart = null;
@@ -423,10 +432,13 @@ export const ProductManagement: React.FC = () => {
           pYearPart = d.getFullYear().toString();
           pMonthPart = (d.getMonth() + 1).toString().padStart(2, '0');
           pDayPart = d.getDate().toString().padStart(2, '0');
-        } else if (typeof p.month === 'string' && p.month.includes('-')) {
-          pYearPart = p.month.split('-')[0] || null;
-          pMonthPart = p.month.split('-')[1] || null;
         }
+      }
+      
+      // Only as a last resort fallback, if no creation/upload time at all exists, use inherited month
+      if (!pYearPart && typeof p.month === 'string' && p.month.includes('-')) {
+        pYearPart = p.month.split('-')[0] || null;
+        pMonthPart = p.month.split('-')[1] || null;
       }
       
       const ownerName = getUserDisplayName(p.assignedOwner || p.ownerName);

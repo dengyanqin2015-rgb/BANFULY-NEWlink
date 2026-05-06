@@ -46,6 +46,8 @@ export function useSecureCollection(collectionName: string) {
       setLoading(false);
     };
 
+    let debounceTimer: any = null;
+
     const handleSnapshot = (snapshot: any, chunkIndex: number) => {
       snapshot.docChanges().forEach((change: any) => {
         if (change.type === 'removed') {
@@ -54,7 +56,11 @@ export function useSecureCollection(collectionName: string) {
           allData.set(change.doc.id, { id: change.doc.id, ...change.doc.data() });
         }
       });
-      updateState();
+      
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        updateState();
+      }, 50);
     };
 
     if (isAdmin || isSuperAdmin) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { collection, onSnapshot, query, where, addDoc, updateDoc, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -395,23 +395,33 @@ export const Planning: React.FC = () => {
     reader.readAsBinaryString(file);
   };
 
-  const uniqueYears = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean))).sort().reverse() as string[];
-  const uniqueMonths = Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean))).sort().reverse() as string[];
-  const uniqueDays = Array.from(new Set(plannings.map(p => p.plannedDay || (p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null)).filter(Boolean))).sort() as string[];
-  const uniqueChannels = Array.from(new Set(plannings.map(p => p.channel).filter(Boolean))) as string[];
-  const uniqueShops = Array.from(new Set(plannings.map(p => p.shop).filter(Boolean))) as string[];
-  const uniqueParentCategories = Array.from(new Set(plannings.map(p => p.parentCategory).filter(Boolean))) as string[];
-  const uniqueCategories = Array.from(new Set(plannings.map(p => p.category).filter(Boolean))) as string[];
+  const userMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    users.forEach(u => {
+      const name = u.displayName || u.username;
+      if (u.email) map[u.email] = name || u.email.split('@')[0];
+      if (u.displayName) map[u.displayName] = name;
+      if (u.username) map[u.username] = name;
+    });
+    return map;
+  }, [users]);
 
   const getUserDisplayName = (emailOrName: string) => {
     if (!emailOrName) return '未知';
-    const user = users.find(u => u.email === emailOrName || u.displayName === emailOrName || u.username === emailOrName);
-    return user?.displayName || user?.username || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
+    return userMap[emailOrName] || (typeof emailOrName === 'string' ? emailOrName.split('@')[0] : String(emailOrName));
   };
 
-  const uniqueOwners = Array.from(new Set(plannings.map(p => getUserDisplayName(p.ownerName)).filter(Boolean))) as string[];
+  const uniqueYears = useMemo(() => Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[0] : null).filter(Boolean))).sort().reverse() as string[], [plannings]);
+  const uniqueMonths = useMemo(() => Array.from(new Set(plannings.map(p => typeof p.month === 'string' ? p.month.split('-')[1] : null).filter(Boolean))).sort().reverse() as string[], [plannings]);
+  const uniqueDays = useMemo(() => Array.from(new Set(plannings.map(p => p.plannedDay || (p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null)).filter(Boolean))).sort() as string[], [plannings]);
+  const uniqueChannels = useMemo(() => Array.from(new Set(plannings.map(p => p.channel).filter(Boolean))) as string[], [plannings]);
+  const uniqueShops = useMemo(() => Array.from(new Set(plannings.map(p => p.shop).filter(Boolean))) as string[], [plannings]);
+  const uniqueParentCategories = useMemo(() => Array.from(new Set(plannings.map(p => p.parentCategory).filter(Boolean))) as string[], [plannings]);
+  const uniqueCategories = useMemo(() => Array.from(new Set(plannings.map(p => p.category).filter(Boolean))) as string[], [plannings]);
 
-  const filteredPlannings = plannings.filter(p => {
+  const uniqueOwners = useMemo(() => Array.from(new Set(plannings.map(p => getUserDisplayName(p.ownerName)).filter(Boolean))) as string[], [plannings, userMap]);
+
+  const filteredPlannings = useMemo(() => plannings.filter(p => {
     const pYear = typeof p.month === 'string' ? p.month.split('-')[0] : null;
     const pMonth = typeof p.month === 'string' ? p.month.split('-')[1] : null;
     const pDay = p.plannedDay || (p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null);
@@ -434,7 +444,7 @@ export const Planning: React.FC = () => {
     const dateA = a.uploadTime ? new Date(a.uploadTime).getTime() : 0;
     const dateB = b.uploadTime ? new Date(b.uploadTime).getTime() : 0;
     return dateA - dateB;
-  });
+  }), [plannings, filterYear, filterMonth, filterChannel, filterShop, filterOwner, filterParentCategory, filterCategory, userMap]);
 
   const paginatedPlannings = filteredPlannings.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
