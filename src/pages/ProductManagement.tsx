@@ -411,10 +411,24 @@ export const ProductManagement: React.FC = () => {
   const enrichedProducts = useMemo(() => {
     return products.map(p => {
       const relatedPlanning = p.planningId ? plannings.find(plan => plan.id === p.planningId) : null;
-      const pMonth = typeof p.month === 'string' ? p.month : '';
-      const pYearPart = pMonth.split('-')[0] || null;
-      const pMonthPart = pMonth.split('-')[1] || null;
-      const pDayPart = p.uploadTime ? new Date(p.uploadTime).getDate().toString().padStart(2, '0') : null;
+      
+      const timeToUse = p.uploadTime || p.createdAt || p.month;
+      let pYearPart = null;
+      let pMonthPart = null;
+      let pDayPart = null;
+      
+      if (timeToUse) {
+        const d = new Date(timeToUse);
+        if (!isNaN(d.getTime())) {
+          pYearPart = d.getFullYear().toString();
+          pMonthPart = (d.getMonth() + 1).toString().padStart(2, '0');
+          pDayPart = d.getDate().toString().padStart(2, '0');
+        } else if (typeof p.month === 'string' && p.month.includes('-')) {
+          pYearPart = p.month.split('-')[0] || null;
+          pMonthPart = p.month.split('-')[1] || null;
+        }
+      }
+      
       const ownerName = getUserDisplayName(p.assignedOwner || p.ownerName);
 
       return {
